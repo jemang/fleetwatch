@@ -372,9 +372,10 @@ dialog .steplabel + pre { margin-top: 8px; }
 
 @media (max-width: 860px) {
   body { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
-  .side { margin-top: 10px; }
-  .side a { flex: 1 1 auto; justify-content: center; }
+  .side { flex-wrap: wrap; margin-top: 10px; }
+  .side a { flex: 1 1 auto; justify-content: center; padding: 6px 8px; }
   .side a::before { content: none; }
+  .side .count { margin-left: 6px; padding: 0 6px; }
   .settings .waits { grid-template-columns: minmax(0, 1fr) 84px; }
   .alerts td.what span { display: block; margin-left: 0; }
   .top { flex-wrap: wrap; padding: 9px 12px; gap: 10px; }
@@ -386,10 +387,10 @@ dialog .steplabel + pre { margin-top: 8px; }
   .search kbd { display: none; }
   .tiles, .tiles.four, .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .chart-grid { grid-template-columns: minmax(0, 1fr); }
-  .tile .value .spark { width: 64px; }
+  .tile .value .spark { width: 64px; min-width: 0; flex: 0 1 auto; }
+  .ranges { flex-wrap: wrap; }
   .tiles:not(.four) .tile:first-child { grid-column: 1 / -1; }
   .tile .value { font-size: 20px; }
-  .hosts { display: block; overflow-x: auto; }
   .hosts:not(.plain) th:nth-child(7), .hosts td.uptime { display: none; }
   /* The Status column scrolls out of view on a phone, so the host name
      stays pinned and its marker carries the state colour. */
@@ -397,6 +398,9 @@ dialog .steplabel + pre { margin-top: 8px; }
   .hosts td.host::before { color: var(--ok); }
   .hosts tr:has([data-status="offline"]) td.host::before { color: var(--bad); }
   .hosts tr:has([data-status="disabled"]) td.host::before { color: var(--ink-3); }
+  .agentbar .actions { flex-wrap: wrap; margin-left: 0; }
+  .rename { width: 100%; }
+  .rename input { flex: 1 1 0; width: auto; min-width: 0; }
   .foot { flex-wrap: wrap; row-gap: 4px; }
   .prompt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .statusline > span:not(:last-child) { display: none; }

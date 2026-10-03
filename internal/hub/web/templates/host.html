@@ -16,30 +16,30 @@
 <p class="pveline">{{.Summary}}</p>
 {{if .Note}}<p class="note">{{.Note}}</p>{{else}}
 <h2>Guests</h2>
-<table class="hosts plain">
+<div class="scroll"><table class="hosts plain">
   <thead><tr><th>ID</th><th>Guest</th><th>Type</th><th>Status</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Uptime</th><th>IP</th></tr></thead>
   <tbody>{{range .Guests}}<tr><td>{{.ID}}</td><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td><span class="svc" data-s="{{.Status}}"><span class="dot"></span>{{.Status}}</span></td>{{template "usage" .CPU}}{{template "usage" .Mem}}{{template "usage" .Disk}}<td>{{.Uptime}}</td><td>{{.IP}}</td></tr>{{else}}<tr><td colspan="9" class="none">No guests on this node.</td></tr>{{end}}</tbody>
-</table>
+</table></div>
 <h2>Storage</h2>
-<table class="hosts plain">
+<div class="scroll"><table class="hosts plain">
   <thead><tr><th>Storage</th><th>Type</th><th>State</th><th>Used / size</th><th>Usage</th></tr></thead>
   <tbody>{{range .Storage}}<tr><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td><span class="svc" data-s="{{if .Active}}running{{else}}failed{{end}}"><span class="dot"></span>{{if .Active}}active{{else}}inactive{{end}}</span></td><td>{{.Size}}</td>{{template "usage" .Usage}}</tr>{{else}}<tr><td colspan="5" class="none">No storage reported.</td></tr>{{end}}</tbody>
-</table>
+</table></div>
 {{end}}{{end}}{{if .Services}}<h2>Services</h2>
-<table class="hosts plain">
+<div class="scroll"><table class="hosts plain">
   <thead><tr><th>Unit</th><th>Status</th></tr></thead>
   <tbody>{{range .Services}}<tr><td class="mono">{{.Name}}</td><td><span class="svc" data-s="{{.Status}}"><span class="dot"></span>{{.Status}}</span></td></tr>{{end}}</tbody>
-</table>
+</table></div>
 {{end}}<h2>Disks</h2>
-<table class="hosts plain">
+<div class="scroll"><table class="hosts plain">
   <thead><tr><th>Mount</th><th>File system</th><th>Used / size</th><th>Usage</th></tr></thead>
   <tbody>{{range .Disks}}<tr><td class="mono">{{.Mount}}</td><td>{{.FS}}</td><td>{{.Size}}</td>{{template "usage" .Usage}}</tr>{{else}}<tr><td colspan="4" class="none">No disks reported.</td></tr>{{end}}</tbody>
-</table>
+</table></div>
 <h2>Network</h2>
-<table class="hosts plain">
+<div class="scroll"><table class="hosts plain">
   <thead><tr><th>Interface</th><th>State</th><th>Addresses</th><th>Received</th><th>Sent</th></tr></thead>
   <tbody>{{range .Nets}}<tr><td class="mono">{{.Name}}</td><td>{{.State}}</td><td>{{if .Addrs}}{{.Addrs}}{{else}}–{{end}}</td><td>{{.Rx}}</td><td>{{.Tx}}</td></tr>{{else}}<tr><td colspan="5" class="none">No interfaces reported.</td></tr>{{end}}</tbody>
-</table>{{end}}
+</table></div>{{end}}
 
 {{define "tilebar"}}<span class="bar{{if .Warn}} warn{{end}}">{{if .Known}}<span style="width: {{.Pct}}%"></span>{{end}}</span>{{end}}
 

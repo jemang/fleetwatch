@@ -16,10 +16,10 @@
 <script src="/static/sse.js"></script>
 <script src="/static/app.js"></script>{{end}}
 
-{{define "alertlist"}}{{if .Alerts}}<table class="hosts plain alerts">
+{{define "alertlist"}}{{if .Alerts}}<div class="scroll"><table class="hosts plain alerts">
   <thead><tr><th>State</th><th>Host</th><th>Alert</th><th>Since</th><th>Ended</th><th aria-label="Action"></th></tr></thead>
   <tbody>{{range .Alerts}}<tr data-href="/alerts/{{.ID}}"><td><span class="astate" data-state="{{.State}}"><span class="dot"></span>{{.State}}</span></td><td class="mono"><a href="/hosts/{{.HostID}}">{{.Host}}</a></td><td class="what"><a href="/alerts/{{.ID}}"><b>{{.Title}}</b>{{if .Detail}}<span>{{.Detail}}</span>{{end}}</a></td><td class="when" data-time="{{.Since}}">{{.SinceText}}</td><td class="when"{{if .Ended}} data-time="{{.Ended}}"{{end}}>{{if .Ended}}{{.EndedText}}{{else}}–{{end}}</td><td class="act">{{if eq .State "firing"}}<form method="post" action="/alerts/{{.ID}}/dismiss"><button>Dismiss</button></form>{{end}}</td></tr>{{end}}</tbody>
-</table>{{else}}<p class="empty">No alerts. FleetWatch lists a host here when it stops reporting, runs out of CPU, memory or disk, or when a service, guest or storage fails.</p>{{end}}{{end}}
+</table></div>{{else}}<p class="empty">No alerts. FleetWatch lists a host here when it stops reporting, runs out of CPU, memory or disk, or when a service, guest or storage fails.</p>{{end}}{{end}}
 
 {{define "alerts"}}<!doctype html>
 <html lang="en">
@@ -65,10 +65,10 @@
   </dl>
   {{if .A.Dismissed}}<p class="note">Dismissed <span data-time="{{.A.Dismissed}}" data-secs="1">{{.A.DismissedText}}</span>: hidden from the count, and no message goes out when it ends.</p>{{end}}
   <h2>Messages</h2>
-  <table class="hosts plain">
+  <div class="scroll"><table class="hosts plain">
     <thead><tr><th>Message</th><th>Status</th></tr></thead>
     <tbody><tr><td>Firing</td><td>{{.A.FireMsg}}</td></tr><tr><td>Resolved</td><td>{{.A.ResolveMsg}}</td></tr></tbody>
-  </table>
+  </table></div>
   <p class="hint">Messages go to the targets in Settings: the webhook and Telegram. Without a target a message counts as sent.</p>
   {{if eq .A.State "firing"}}<form class="agentbar" method="post" action="/alerts/{{.A.ID}}/dismiss"><p>Dismiss hides this alert and sends no further message for it. It comes back only if the problem ends and then happens again.</p><button>Dismiss</button></form>{{end}}
 </main>
@@ -125,10 +125,10 @@
   </form>
   <h2>Passkeys</h2>
   {{if .PasskeysOn}}<p class="hint">A passkey (Touch ID, Windows Hello, a hardware key or a password manager) logs you in without the password. The password stays as the second way in.</p>
-  {{if .Passkeys}}<table class="hosts plain passkeys">
+  {{if .Passkeys}}<div class="scroll"><table class="hosts plain passkeys">
     <thead><tr><th>Name</th><th>Added</th><th>Last used</th><th aria-label="Action"></th></tr></thead>
     <tbody>{{range .Passkeys}}<tr><td class="mono">{{.Name}}</td><td class="when" data-time="{{.Created}}">{{.CreatedText}}</td><td class="when"{{if .Used}} data-time="{{.Used}}"{{end}}>{{if .Used}}{{.UsedText}}{{else}}never{{end}}</td><td class="act"><form method="post" action="/passkeys/{{.ID}}/delete"><button>Remove</button></form></td></tr>{{end}}</tbody>
-  </table>{{end}}
+  </table></div>{{end}}
   <form id="passkey-add" class="passkey-add" onsubmit="return false">
     <label for="passkey-name">New passkey</label>
     <div class="formfoot"><input id="passkey-name" placeholder="Name, for example MacBook" maxlength="64" autocomplete="off"><button type="button" id="passkey-register" class="primary">Add passkey</button><span id="passkey-msg" class="testresult" role="status"></span></div>
