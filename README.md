@@ -1,7 +1,13 @@
-# FleetWatch
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/wordmark-dark.svg">
+    <img src="docs/img/wordmark-light.svg" width="300" alt="FleetWatch">
+  </picture>
+</p>
 
 FleetWatch is a self-hosted monitor for Linux servers and Proxmox nodes. A single **Hub** binary holds the database and dashboard; a small **agent** on each host pushes CPU, memory, disk and network metrics to it over HTTPS. The agent opens no port and runs no commands. Live dashboard, alert webhooks, signed agent installs, passkey login, Docker deploy.
 
+![Hosts overview: every server with CPU, RAM, disk, guests, uptime and status, updated live](docs/img/hosts.png)
 
 ## Start the Hub
 
@@ -95,11 +101,18 @@ journalctl -u fleetwatch-agent    # the agent's log
 
 In **Settings → Passkeys** the administrator can add a passkey (Touch ID, Windows Hello, a hardware key, a password manager) and then log in with **Use passkey** on the login page. The password stays as the second way in. Browsers allow passkeys only over HTTPS with a host name (`localhost` over plain HTTP works for development), so `FLEETWATCH_PUBLIC_URL` must be an `https://` address with a name; otherwise the section explains why passkeys are off.
 
+![Login page with password and passkey](docs/img/login.png)
+
 ## In the dashboard
 
 - **Hosts** – all servers; a host name opens its page with disks, network, services, Proxmox guests and history.
 - **Alerts** – what is wrong now and what was. **Settings** holds the webhook and Telegram targets and the waiting times.
 - Host page, section **Agent**: *Replace credential* issues a new credential (the old one stops working when the new one is issued); *Disable agent* makes the Hub refuse a server's reports.
+
+
+![Host page for a Proxmox node: VE version, cluster, guests with CPU, memory, disk and IP](docs/img/host-pve.png)
+
+![Alerts page: one firing storage alert and resolved offline alerts with start and end times](docs/img/alerts.png)
 
 ## Upgrade
 

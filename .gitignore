@@ -1,0 +1,8 @@
+bin/
+release/
+deploy/.env
+.codegraph/
+.claude/settings.local.json
+handoff.md
+.DS_Store
+.doc
