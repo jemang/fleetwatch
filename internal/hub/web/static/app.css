@@ -36,8 +36,10 @@ body[data-page]::before {
     linear-gradient(rgba(3, 9, 14, 0.52), rgba(3, 9, 14, 0.64)),
     url("bg.webp") center / cover no-repeat;
 }
+/* viewport-fit=cover lets an installed app draw under a phone's notch;
+   the safe-area insets keep the content clear of it. */
 body {
-  margin: 0 auto; max-width: 1360px; padding: 20px 22px 22px; min-height: 100vh;
+  margin: 0 auto; max-width: 1360px; padding: max(20px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left)); min-height: 100vh;
   color: var(--ink); font: 14px/1.5 var(--mono);
   -webkit-font-smoothing: antialiased; caret-color: var(--accent);
 }
@@ -344,7 +346,7 @@ dialog .steplabel + pre { margin-top: 8px; }
 
 /* Laptop widths: same layout, tighter cells, so all nine columns fit. */
 @media (max-width: 1599px) {
-  body { font-size: 13px; padding: 16px 18px 20px; }
+  body { font-size: 13px; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
   .hosts th, .hosts td { padding-left: 12px; padding-right: 12px; }
   .hosts th { font-size: 12px; }
   .sort { gap: 7px; }
@@ -366,7 +368,7 @@ dialog .steplabel + pre { margin-top: 8px; }
 }
 
 @media (max-width: 860px) {
-  body { padding: 12px; }
+  body { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   .side { margin-top: 10px; }
   .side a { flex: 1 1 auto; justify-content: center; }
   .side a::before { content: none; }

@@ -29,7 +29,7 @@ const (
 
 // Title is the short name of an alert kind for people.
 var Title = map[string]string{
-	KindOffline: "Host offline", KindCPU: "CPU high", KindRAM: "Memory high", KindDisk: "Disk full",
+	KindOffline: "Agent disconnected", KindCPU: "CPU high", KindRAM: "Memory high", KindDisk: "Disk full",
 	KindStorage: "Storage inactive", KindGuest: "Guest stopped", KindService: "Service failed",
 }
 

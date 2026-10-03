@@ -196,7 +196,7 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 	}
 	// A host counts as offline 45 seconds after its last report.
 	if !wholeNumber(form.OfflineAfter, int(OfflineAfter.Seconds()), 3600) {
-		errs = append(errs, "Host offline: enter a whole number of seconds from 45 to 3600.")
+		errs = append(errs, "Agent disconnected: enter a whole number of seconds from 45 to 3600.")
 	}
 	for _, f := range []struct{ label, value string }{{"CPU high", form.CPUFor}, {"Memory high", form.RAMFor}, {"Disk full", form.DiskFor}} {
 		if !wholeNumber(f.value, 0, 1440) {

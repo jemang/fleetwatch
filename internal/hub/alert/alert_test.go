@@ -156,8 +156,16 @@ func TestWebhookAndTelegram(t *testing.T) {
 	}
 	resolved := msg
 	resolved.Event = "resolved"
-	if resolved.Text() != "[FleetWatch] RESOLVED web-01: CPU high" {
+	if resolved.Text() != "[FleetWatch] RESOLVED web-01: CPU high (CPU 93%)" {
 		t.Errorf("resolved text = %q", resolved.Text())
+	}
+	down := Message{Event: "firing", Host: "web-01", Kind: KindOffline}
+	if down.Text() != "[FleetWatch] ALERT web-01: Agent disconnected" {
+		t.Errorf("offline text = %q", down.Text())
+	}
+	down.Event = "resolved"
+	if down.Text() != "[FleetWatch] RESOLVED web-01: Agent connected" {
+		t.Errorf("back online text = %q", down.Text())
 	}
 }
 

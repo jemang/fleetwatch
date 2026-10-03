@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,6 +30,11 @@ var templateFS embed.FS
 
 //go:embed static
 var staticFS embed.FS
+
+func init() {
+	// Not in Go's built-in table, and the Hub image has no /etc/mime.types.
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 const enrollTTL = 15 * time.Minute
 

@@ -21,16 +21,20 @@ func (m Message) Text() string {
 	if title == "" {
 		title = m.Kind
 	}
-	switch m.Event {
-	case "resolved":
-		return fmt.Sprintf("[FleetWatch] RESOLVED %s: %s", m.Host, title)
-	case "test":
+	if m.Event == "test" {
 		return "[FleetWatch] Test message from " + m.Hub + ". Notifications work."
 	}
-	if m.Detail == "" {
-		return fmt.Sprintf("[FleetWatch] ALERT %s: %s", m.Host, title)
+	word := "ALERT"
+	if m.Event == "resolved" {
+		word = "RESOLVED"
+		if m.Kind == KindOffline {
+			title = "Agent connected"
+		}
 	}
-	return fmt.Sprintf("[FleetWatch] ALERT %s: %s (%s)", m.Host, title, m.Detail)
+	if m.Detail == "" {
+		return fmt.Sprintf("[FleetWatch] %s %s: %s", word, m.Host, title)
+	}
+	return fmt.Sprintf("[FleetWatch] %s %s: %s (%s)", word, m.Host, title, m.Detail)
 }
 
 // Target is one place messages go.

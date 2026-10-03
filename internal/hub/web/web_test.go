@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -805,5 +806,54 @@ func TestRenameHost(t *testing.T) {
 	h.do("POST", page+"/label", c, url.Values{"label": {""}}, false)
 	if list := h.do("GET", "/", c, nil, false).Body.String(); strings.Contains(list, `class="hostname"`) {
 		t.Error("without a name the list shows only the hostname")
+	}
+}
+
+func TestInstallableAsAnApp(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	c := h.login()
+	for _, path := range []string{"/login", "/", "/alerts", "/logs", "/settings"} {
+		body := h.do("GET", path, c, nil, false).Body.String()
+		for _, want := range []string{`<link rel="manifest" href="/static/manifest.webmanifest">`, `<meta name="theme-color" content="#0b0e12">`, `<link rel="apple-touch-icon" href="/static/icon-180.png">`, `viewport-fit=cover`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s is missing %q", path, want)
+			}
+		}
+	}
+	w := h.do("GET", "/static/manifest.webmanifest", nil, nil, false)
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/manifest+json" {
+		t.Fatalf("manifest: %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+	var m struct {
+		Name            string `json:"name"`
+		StartURL        string `json:"start_url"`
+		Display         string `json:"display"`
+		ThemeColor      string `json:"theme_color"`
+		BackgroundColor string `json:"background_color"`
+		Icons           []struct{ Src, Sizes, Type, Purpose string }
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != "FleetWatch" || m.StartURL != "/" || m.Display != "standalone" || m.ThemeColor != "#0b0e12" || m.BackgroundColor != "#0b0e12" {
+		t.Errorf("manifest = %+v", m)
+	}
+	want := map[string]bool{"192x192 any": false, "512x512 any": false, "512x512 maskable": false}
+	for _, i := range m.Icons {
+		key := i.Sizes + " " + i.Purpose
+		if _, ok := want[key]; ok && i.Type == "image/png" {
+			want[key] = true
+		}
+		if r := h.do("GET", i.Src, nil, nil, false); r.Code != http.StatusOK || r.Header().Get("Content-Type") != "image/png" {
+			t.Errorf("icon %s: %d %q", i.Src, r.Code, r.Header().Get("Content-Type"))
+		}
+	}
+	for k, ok := range want {
+		if !ok {
+			t.Errorf("manifest has no %s PNG icon", k)
+		}
+	}
+	if r := h.do("GET", "/static/icon-180.png", nil, nil, false); r.Code != http.StatusOK {
+		t.Errorf("apple-touch-icon: %d", r.Code)
 	}
 }
