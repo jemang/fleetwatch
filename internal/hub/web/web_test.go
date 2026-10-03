@@ -112,11 +112,11 @@ func TestEnsureAdmin(t *testing.T) {
 	if err := EnsureAdmin(ctx, st, ""); err == nil || !strings.Contains(err.Error(), "FLEETWATCH_ADMIN_PASSWORD") {
 		t.Errorf("first start without a password: err = %v, want it to name the variable", err)
 	}
-	if err := EnsureAdmin(ctx, st, "s3cret"); err != nil {
+	if err := EnsureAdmin(ctx, st, "s3cret-long-enough"); err != nil {
 		t.Fatal(err)
 	}
 	hash, _ := st.AdminPasswordHash(ctx)
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte("s3cret")) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte("s3cret-long-enough")) != nil {
 		t.Error("stored hash must verify the password")
 	}
 	if err := EnsureAdmin(ctx, st, ""); err != nil {

@@ -60,6 +60,24 @@ func TestServerTimeouts(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	h := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/login", nil))
+	for name, want := range map[string]string{
+		"Content-Security-Policy": "frame-ancestors 'none'",
+		"X-Content-Type-Options":  "nosniff",
+		"Referrer-Policy":         "same-origin",
+	} {
+		if got := w.Header().Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if w.Code != http.StatusTeapot {
+		t.Errorf("status %d: the wrapped handler must still answer", w.Code)
+	}
+}
+
 func TestLoadConfigErrors(t *testing.T) {
 	cases := []struct {
 		env  map[string]string

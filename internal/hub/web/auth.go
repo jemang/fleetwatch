@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -17,7 +18,22 @@ import (
 const (
 	cookieName = "fw_session"
 	sessionTTL = 7 * 24 * time.Hour
+	// bcrypt reads only the first 72 bytes, so a longer password would be
+	// cut without notice.
+	minPassword = 12
+	maxPassword = 72
 )
+
+// passwordProblem says what is wrong with a new admin password, or "".
+func passwordProblem(p string) string {
+	switch {
+	case utf8.RuneCountInString(p) < minPassword:
+		return fmt.Sprintf("The password must have at least %d characters.", minPassword)
+	case len(p) > maxPassword:
+		return fmt.Sprintf("The password can have at most %d bytes.", maxPassword)
+	}
+	return ""
+}
 
 // EnsureAdmin creates the admin account on first start. Once an admin exists
 // the password argument is ignored.
@@ -28,6 +44,9 @@ func EnsureAdmin(ctx context.Context, st *store.Store, password string) error {
 	}
 	if password == "" {
 		return errors.New("no admin account exists yet: set FLEETWATCH_ADMIN_PASSWORD for the first start")
+	}
+	if p := passwordProblem(password); p != "" {
+		return fmt.Errorf("FLEETWATCH_ADMIN_PASSWORD: %s", p)
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -123,4 +142,57 @@ func (w *Web) requireSession(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(rw, r, "/login", http.StatusSeeOther)
 		}
 	}
+}
+
+// changePassword replaces the admin password. The current one is checked
+// under the login limit, and every other session ends, so a leaked password
+// or a forgotten device loses access.
+func (w *Web) changePassword(rw http.ResponseWriter, r *http.Request) {
+	ip := limit.RemoteIP(r)
+	if !w.loginLimit.Allow(ip) {
+		w.passwordError(rw, r, http.StatusTooManyRequests, "Too many failed attempts. Wait one minute.")
+		return
+	}
+	r.Body = http.MaxBytesReader(rw, r.Body, 4<<10)
+	hash, err := w.st.AdminPasswordHash(r.Context())
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(r.PostFormValue("current"))) != nil {
+		w.loginLimit.Fail(ip)
+		log.Printf("password change refused from %s (wrong current password)", ip)
+		w.passwordError(rw, r, http.StatusUnauthorized, "Current password is wrong.")
+		return
+	}
+	next := r.PostFormValue("new")
+	if p := passwordProblem(next); p != "" {
+		w.passwordError(rw, r, http.StatusBadRequest, p)
+		return
+	}
+	if next != r.PostFormValue("repeat") {
+		w.passwordError(rw, r, http.StatusBadRequest, "The new passwords do not match.")
+		return
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(next), bcrypt.DefaultCost)
+	c, cerr := r.Cookie(cookieName)
+	if err != nil || cerr != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := w.st.SetAdminPassword(r.Context(), string(newHash), store.HashToken(c.Value)); err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("admin password changed from %s; other sessions logged out", ip)
+	http.Redirect(rw, r, "/settings?password=1", http.StatusSeeOther)
+}
+
+func (w *Web) passwordError(rw http.ResponseWriter, r *http.Request, status int, msg string) {
+	s, err := w.st.Settings(r.Context())
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.renderSettings(rw, r, status, formFromSettings(s), []string{msg}, false)
 }

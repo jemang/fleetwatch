@@ -179,12 +179,13 @@ func hostOf(rawURL string) string {
 
 type settingsData struct {
 	chrome
-	Form       settingsForm
-	Errors     []string
-	Saved      bool
-	PasskeysOn bool
-	Passkeys   []PasskeyRow
-	PublicURL  string
+	Form            settingsForm
+	Errors          []string
+	Saved           bool
+	PasswordChanged bool
+	PasskeysOn      bool
+	Passkeys        []PasskeyRow
+	PublicURL       string
 }
 
 func formFromSettings(s map[string]string) settingsForm {
@@ -214,7 +215,7 @@ func (w *Web) renderSettings(rw http.ResponseWriter, r *http.Request, status int
 		return
 	}
 	w.render(rw, status, "settings", settingsData{chrome: w.chrome(r, "settings", rows), Form: form, Errors: errs, Saved: saved,
-		PasskeysOn: w.passkeysOn(), Passkeys: passkeyRows(keys), PublicURL: w.publicURL})
+		PasswordChanged: r.URL.Query().Get("password") != "", PasskeysOn: w.passkeysOn(), Passkeys: passkeyRows(keys), PublicURL: w.publicURL})
 }
 
 func (w *Web) settingsPage(rw http.ResponseWriter, r *http.Request) {

@@ -25,7 +25,7 @@ Open the public URL and log in with the password. Data lives in the Docker volum
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `FLEETWATCH_ADMIN_PASSWORD` | dashboard password (required) | – |
+| `FLEETWATCH_ADMIN_PASSWORD` | dashboard password for the first start, at least 12 characters (required); change it later in Settings | – |
 | `FLEETWATCH_PUBLIC_URL` | address of the Hub as agents see it (required for real use) | `http://localhost:8080` |
 | `FLEETWATCH_PORT` | port on the Docker host | `8080` |
 | `FLEETWATCH_VERSION` | image tag to run: a release number, or `latest` | `latest` |

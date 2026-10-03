@@ -100,7 +100,11 @@ func (w *Web) sparks(r *http.Request) sparkSet {
 }
 
 func New(st *store.Store, bus *live.Bus, logs *logbuf.Buffer, now func() time.Time, publicURL string, secure bool) (*Web, error) {
-	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
+	// asset adds the version to a stylesheet or script URL: proxies such as
+	// Cloudflare cache /static/ files for hours, and a release must not be
+	// served the previous one's CSS.
+	asset := func(path string) string { return path + "?v=" + version.Version }
+	tmpl, err := template.New("").Funcs(template.FuncMap{"asset": asset}).ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +140,7 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", w.requireSession(w.settingsPage))
 	mux.HandleFunc("POST /settings", w.requireSession(w.settingsSave))
 	mux.HandleFunc("POST /settings/test", w.requireSession(w.settingsTest))
+	mux.HandleFunc("POST /settings/password", w.requireSession(w.changePassword))
 	mux.HandleFunc("GET /events", w.requireSession(w.events))
 	w.passkeyRoutes(mux)
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))

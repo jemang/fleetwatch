@@ -70,6 +70,19 @@ func logSlow(next http.Handler, logf func(string, ...any), now func() time.Time)
 	})
 }
 
+// securityHeaders forbids other sites to frame the pages and browsers to
+// guess content types, and keeps page addresses out of Referer headers sent
+// elsewhere.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // newServer bounds how long a client may take to send a request. There is no
 // write timeout because the dashboard event stream stays open.
 func newServer(addr string, h http.Handler) *http.Server {
@@ -143,7 +156,7 @@ func run() error {
 	alerts := &alert.Engine{St: st, Bus: bus, Now: time.Now, Hub: web.HubName(cfg.PublicURL), Log: log.Printf}
 	go alerts.Run(ctx, 15*time.Second)
 
-	srv := newServer(cfg.Listen, logSlow(mux, log.Printf, time.Now))
+	srv := newServer(cfg.Listen, securityHeaders(logSlow(mux, log.Printf, time.Now)))
 	go func() {
 		<-ctx.Done()
 		// Dashboard streams never finish on their own, so shutdown gets a deadline.

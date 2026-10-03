@@ -12,9 +12,9 @@
   </div>
 </header>{{end}}
 
-{{define "scripts"}}<script src="/static/htmx.min.js"></script>
-<script src="/static/sse.js"></script>
-<script src="/static/app.js"></script>{{end}}
+{{define "scripts"}}<script src="{{asset "/static/htmx.min.js"}}"></script>
+<script src="{{asset "/static/sse.js"}}"></script>
+<script src="{{asset "/static/app.js"}}"></script>{{end}}
 
 {{define "alertlist"}}{{if .Alerts}}<div class="scroll"><table class="hosts plain alerts">
   <thead><tr><th>State</th><th>Host</th><th>Alert</th><th>Since</th><th>Ended</th><th aria-label="Action"></th></tr></thead>
@@ -88,6 +88,7 @@
 <main>
   <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
   {{if .Saved}}<p class="saved" role="status">Settings saved.</p>{{end}}
+  {{if .PasswordChanged}}<p class="saved" role="status">Password changed. Other devices are logged out.</p>{{end}}
   {{range .Errors}}<p class="error" role="alert">{{.}}</p>{{end}}
   <form class="settings" method="post" action="/settings">
     <fieldset>
@@ -123,6 +124,19 @@
     </div>
     <p class="hint">The test uses the saved settings. Save first.</p>
   </form>
+  <form class="settings" method="post" action="/settings/password">
+    <fieldset>
+      <legend>Password</legend>
+      <p class="hint">At least 12 characters. Changing it logs out every other device; passkeys keep working. FLEETWATCH_ADMIN_PASSWORD in .env is read only on the first start, so editing it later changes nothing.</p>
+      <label for="pw_current">Current password</label>
+      <input id="pw_current" name="current" type="password" autocomplete="current-password" required>
+      <label for="pw_new">New password</label>
+      <input id="pw_new" name="new" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+      <label for="pw_repeat">New password again</label>
+      <input id="pw_repeat" name="repeat" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+    </fieldset>
+    <div class="formfoot"><button class="primary">Change password</button></div>
+  </form>
   <h2>Passkeys</h2>
   {{if .PasskeysOn}}<p class="hint">A passkey (Touch ID, Windows Hello, a hardware key or a password manager) logs you in without the password. The password stays as the second way in.</p>
   {{if .Passkeys}}<div class="scroll"><table class="hosts plain passkeys">
@@ -133,7 +147,7 @@
     <label for="passkey-name">New passkey</label>
     <div class="formfoot"><input id="passkey-name" placeholder="Name, for example MacBook" maxlength="64" autocomplete="off"><button type="button" id="passkey-register" class="primary">Add passkey</button><span id="passkey-msg" class="testresult" role="status"></span></div>
   </form>
-  <script src="/static/passkey.js"></script>{{else}}<p class="hint">Passkeys are off: browsers allow them only when the Hub is reached over HTTPS with a host name, and this Hub's address is {{.PublicURL}}. Set FLEETWATCH_PUBLIC_URL to an https:// address with a name, start the Hub again, and this section turns on.</p>{{end}}
+  <script src="{{asset "/static/passkey.js"}}"></script>{{else}}<p class="hint">Passkeys are off: browsers allow them only when the Hub is reached over HTTPS with a host name, and this Hub's address is {{.PublicURL}}. Set FLEETWATCH_PUBLIC_URL to an https:// address with a name, start the Hub again, and this section turns on.</p>{{end}}
 </main>
 {{template "foot" .}}
 {{template "scripts"}}

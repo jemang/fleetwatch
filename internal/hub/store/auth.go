@@ -27,6 +27,23 @@ func (s *Store) AdminPasswordHash(ctx context.Context) (string, error) {
 	return h, err
 }
 
+// SetAdminPassword replaces the admin password and ends every session except
+// keep (the hash of the session that made the change).
+func (s *Store) SetAdminPassword(ctx context.Context, passwordHash, keep string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE admin SET password_hash = ? WHERE id = 1`, passwordHash); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash <> ?`, keep); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) CreateSession(ctx context.Context, tokenHash string, now, expires time.Time) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, now.Unix()); err != nil {
 		return err
