@@ -30,7 +30,7 @@ func (a Alert) State() string {
 	return "pending"
 }
 
-const alertSelect = `SELECT a.id, a.host_id, h.name, a.kind, a.subject, a.detail, a.pending_since,
+const alertSelect = `SELECT a.id, a.host_id, ` + shownName + `, a.kind, a.subject, a.detail, a.pending_since,
 	a.fired_at, a.resolved_at, a.dismissed_at, a.notified_fire, a.notified_resolve
 	FROM alerts a JOIN hosts h ON h.id = a.host_id`
 

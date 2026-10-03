@@ -58,11 +58,14 @@ curl -fsSL https://monitor.example.com/install/<token> | sudo FLEETWATCH_SERVICE
 | Variable | Meaning |
 |---|---|
 | `FLEETWATCH_SERVICES` | systemd units to watch, separated by commas |
-| `FLEETWATCH_PVE_TOKEN_ID`, `FLEETWATCH_PVE_TOKEN_SECRET` | read-only Proxmox API token, to report VMs, containers and storage |
+| `FLEETWATCH_PVE_TOKEN_ID`, `FLEETWATCH_PVE_TOKEN_SECRET` | read-only Proxmox API token, to report VMs, containers and storage; made by the installer when not given |
+| `FLEETWATCH_PVE_SETUP=0` | do not make a Proxmox API token |
 
 ### Proxmox
 
-Create a read-only token on the node, then pass it to the installer:
+On a Proxmox node the installer makes a read-only API token itself: user `fleetwatch@pve` with the role `PVEAuditor` on `/`, and token `agent-<node name>`, one per node so the nodes of a cluster do not replace each other's token. Running the installer again replaces the token. For an agent that is already installed, use **Replace credential** on the host page and run the installer it shows. `fleetwatch-agent uninstall` leaves the token in place and prints the command that removes it.
+
+If the token cannot be made (for example a cluster without quorum), the installer says why and the agent runs without it. To make one by hand:
 
 ```bash
 pveum user add fleetwatch@pve
@@ -102,6 +105,7 @@ In **Settings → Passkeys** the administrator can add a passkey (Touch ID, Wind
 
 - **Hosts** – all servers; a host name opens its page with disks, network, services, Proxmox guests and history.
 - **Alerts** – what is wrong now and what was. **Settings** holds the webhook and Telegram targets and the waiting times.
+- **Logs** – the Hub's own log, live like `tail -f`: every agent report, logins, enrollments, alerts and failures. The last 3000 lines since the Hub started; `docker logs` keeps the rest (capped at 3 × 10 MB by the Compose file).
 - Host page, section **Agent**: *Replace credential* issues a new credential (the old one stops working when the new one is issued); *Disable agent* makes the Hub refuse a server's reports.
 
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
@@ -117,6 +118,7 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /hosts/{id}", w.requireSession(w.hostPage))
 	mux.HandleFunc("GET /hosts/{id}/charts", w.requireSession(w.hostCharts))
 	mux.HandleFunc("POST /hosts/{id}/credential", w.requireSession(w.replaceCredential))
+	mux.HandleFunc("POST /hosts/{id}/label", w.requireSession(w.setHostLabel))
 	mux.HandleFunc("POST /hosts/{id}/agent", w.requireSession(w.setAgentDisabled))
 	mux.HandleFunc("POST /hosts/{id}/delete", w.requireSession(w.deleteHost))
 	mux.HandleFunc("POST /servers/enroll-token", w.requireSession(w.enrollToken))
@@ -282,6 +284,31 @@ func (w *Web) setAgentDisabled(rw http.ResponseWriter, r *http.Request) {
 		log.Printf("agent on %s disabled", h.Name)
 	} else {
 		log.Printf("agent on %s enabled", h.Name)
+	}
+	w.bus.Publish(live.Event{Kind: live.HostUpdated, HostID: h.ID})
+	http.Redirect(rw, r, "/hosts/"+strconv.FormatInt(h.ID, 10), http.StatusSeeOther)
+}
+
+// setHostLabel names a server on the Hub, so two nodes both called pve can be
+// told apart. An empty name shows the hostname again.
+func (w *Web) setHostLabel(rw http.ResponseWriter, r *http.Request) {
+	h, ok := w.hostFromPath(rw, r)
+	if !ok {
+		return
+	}
+	label := strings.TrimSpace(r.PostFormValue("label"))
+	if utf8.RuneCountInString(label) > 64 {
+		http.Error(rw, "Give the server a name of at most 64 characters.", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := w.st.SetHostLabel(r.Context(), h.ID, label); err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if label == "" {
+		log.Printf("server %s renamed back to its hostname %s", h.Name, h.Hostname)
+	} else {
+		log.Printf("server %s renamed to %s", h.Name, label)
 	}
 	w.bus.Publish(live.Event{Kind: live.HostUpdated, HostID: h.ID})
 	http.Redirect(rw, r, "/hosts/"+strconv.FormatInt(h.ID, 10), http.StatusSeeOther)

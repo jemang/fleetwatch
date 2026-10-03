@@ -118,6 +118,18 @@ func (s *Store) SetAgentDisabled(ctx context.Context, hostID int64, disabled boo
 	return nil
 }
 
+// SetHostLabel names the host on the Hub; an empty label shows the hostname.
+func (s *Store) SetHostLabel(ctx context.Context, hostID int64, label string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE hosts SET label = ? WHERE id = ?`, label, hostID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // AcceptReport replaces the host's latest state. It returns *ReplayError when
 // the report's ts is not greater than the last accepted one.
 func (s *Store) AcceptReport(ctx context.Context, agentID int64, r protocol.Report, now time.Time) error {
@@ -164,7 +176,9 @@ func (s *Store) AcceptReport(ctx context.Context, agentID int64, r protocol.Repo
 
 type Host struct {
 	ID           int64
-	Name         string
+	Name         string // the label, or the hostname when there is none
+	Label        string
+	Hostname     string
 	Metrics      *protocol.Metrics
 	Inventory    *protocol.Inventory
 	LastSeen     time.Time
@@ -172,14 +186,17 @@ type Host struct {
 	Disabled     bool // the Hub refuses this host's agent
 }
 
-const hostSelect = `SELECT h.id, h.name, h.metrics_json, h.inventory_json, a.last_seen, a.agent_version, a.disabled
+// shownName is how a host is named on every page and in alerts.
+const shownName = `COALESCE(NULLIF(h.label, ''), h.name)`
+
+const hostSelect = `SELECT h.id, ` + shownName + `, h.label, h.name, h.metrics_json, h.inventory_json, a.last_seen, a.agent_version, a.disabled
 	FROM hosts h JOIN agents a ON a.host_id = h.id`
 
 func scanHost(sc interface{ Scan(...any) error }) (Host, error) {
 	var h Host
 	var metrics, inv sql.NullString
 	var seen sql.NullInt64
-	if err := sc.Scan(&h.ID, &h.Name, &metrics, &inv, &seen, &h.AgentVersion, &h.Disabled); err != nil {
+	if err := sc.Scan(&h.ID, &h.Name, &h.Label, &h.Hostname, &metrics, &inv, &seen, &h.AgentVersion, &h.Disabled); err != nil {
 		return h, err
 	}
 	if metrics.Valid {
@@ -201,7 +218,7 @@ func scanHost(sc interface{ Scan(...any) error }) (Host, error) {
 }
 
 func (s *Store) Hosts(ctx context.Context) ([]Host, error) {
-	rows, err := s.db.QueryContext(ctx, hostSelect+` ORDER BY h.name, h.id`)
+	rows, err := s.db.QueryContext(ctx, hostSelect+` ORDER BY `+shownName+`, h.id`)
 	if err != nil {
 		return nil, err
 	}

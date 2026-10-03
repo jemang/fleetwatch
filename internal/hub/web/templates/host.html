@@ -85,6 +85,11 @@
   <div id="now" sse-swap="detail" hx-swap="innerHTML">{{template "now" .Detail}}</div>
   <h2>History</h2>
   <section id="charts" hx-get="/hosts/{{.Detail.Row.ID}}/charts?range=1h" hx-trigger="load" hx-swap="innerHTML"></section>
+  <h2>Name</h2>
+  <section class="agentbar">
+    <p>Shown instead of the hostname <b class="mono">{{.Detail.Row.Hostname}}</b> on every page and in alerts. Leave it empty to show the hostname.</p>
+    <form class="actions rename" method="post" action="/hosts/{{.Detail.Row.ID}}/label"><input name="label" maxlength="64" aria-label="Server name" placeholder="{{.Detail.Row.Hostname}}" value="{{.Detail.Row.Label}}"><button>Save name</button></form>
+  </section>
   <h2>Agent</h2>
   <section class="agentbar">
     <p>{{if .Detail.Row.Disabled}}This agent is disabled: the Hub refuses its reports, and the host raises no alerts.{{else}}Replace the credential if it may have leaked. Disable the agent when the server is retired or must stop reporting.{{end}}</p>

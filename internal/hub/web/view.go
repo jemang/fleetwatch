@@ -36,6 +36,8 @@ type Usage struct {
 type HostRow struct {
 	ID             int64
 	Name           string
+	Label          string // set on the Hub; Name is the label, or the hostname without one
+	Hostname       string
 	IP, IPTitle    string
 	IPKey          string // the IPv4 address as a number, for sorting; empty otherwise
 	CPU, RAM, Disk Usage
@@ -148,7 +150,7 @@ func ratio(used, total uint64) float64 { return float64(used) / float64(total) *
 // BuildRow turns stored state into what one table row shows. An offline host
 // shows no metrics: they would be stale.
 func BuildRow(h store.Host, now time.Time) HostRow {
-	row := HostRow{ID: h.ID, Name: h.Name, IP: "–", Uptime: "–", Online: !h.Disabled && Online(h.LastSeen, now), Disabled: h.Disabled}
+	row := HostRow{ID: h.ID, Name: h.Name, IP: "–", Uptime: "–", Online: !h.Disabled && Online(h.LastSeen, now), Disabled: h.Disabled, Label: h.Label, Hostname: h.Hostname}
 	if !h.LastSeen.IsZero() {
 		row.LastSeenUnix = h.LastSeen.Unix()
 	}

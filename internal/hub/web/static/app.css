@@ -153,6 +153,7 @@ th[aria-sort="descending"] .sort .arrows::after { border-top-color: var(--accent
 .status[data-status="disabled"] .dot { background: transparent; box-shadow: inset 0 0 0 2px var(--ink-3); }
 
 .hosts td.host a { color: inherit; text-decoration: none; }
+.hosts td.host .hostname { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--ink-3); }
 .hosts td.host a:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 .hosts td.mono { font-weight: 500; }
 .hosts td.none { color: var(--ink-3); }
@@ -325,9 +326,10 @@ dialog .steplabel + pre { margin-top: 8px; }
 .login .eye .slash { display: none; }
 .login .eye[aria-pressed="true"] .slash { display: block; }
 .login button svg { margin-right: 9px; vertical-align: -3px; }
-.login input, .settings input:not([type="checkbox"]) { width: 100%; margin-bottom: 16px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--well); border: 1px solid var(--line-strong); border-radius: 6px; }
-.login input:hover, .settings input:not([type="checkbox"]):hover { border-color: var(--line-bright); }
+.login input, .settings input:not([type="checkbox"]), .rename input { width: 100%; margin-bottom: 16px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--well); border: 1px solid var(--line-strong); border-radius: 6px; }
+.login input:hover, .settings input:not([type="checkbox"]):hover, .rename input:hover { border-color: var(--line-bright); }
 .settings input:not([type="checkbox"]) { margin-bottom: 0; }
+.rename input { width: 240px; margin-bottom: 0; }
 .settings input::placeholder { color: var(--ink-3); }
 .settings input[type="checkbox"] { accent-color: var(--accent); vertical-align: -2px; }
 .login button { width: 100%; padding: 11px 16px; font-size: 15px; }

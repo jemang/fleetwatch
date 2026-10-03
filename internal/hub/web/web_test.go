@@ -769,3 +769,41 @@ func TestLogoOnEveryPageAndAsIcon(t *testing.T) {
 		t.Errorf("logo.svg: %d %q", w.Code, w.Header().Get("Content-Type"))
 	}
 }
+
+func TestRenameHost(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id := h.addHost("pve")
+	c := h.login()
+	page := "/hosts/" + strconv.FormatInt(id, 10)
+	if body := h.do("GET", page, c, nil, false).Body.String(); !strings.Contains(body, `action="`+page+`/label"`) || !strings.Contains(body, `placeholder="pve"`) {
+		t.Error("host page must offer a name form with the hostname as placeholder")
+	}
+	if w := h.do("POST", page+"/label", nil, url.Values{"label": {"x"}}, false); w.Header().Get("Location") != "/login" {
+		t.Error("renaming needs a session")
+	}
+	if w := h.do("POST", page+"/label", c, url.Values{"label": {strings.Repeat("a", 65)}}, false); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("a 65-character name: status %d, want 422", w.Code)
+	}
+	events, cancel := h.bus.Subscribe()
+	defer cancel()
+	if w := h.do("POST", page+"/label", c, url.Values{"label": {"  pve-office  "}}, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != page {
+		t.Fatalf("rename: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if ev := <-events; ev.Kind != live.HostUpdated || ev.HostID != id {
+		t.Errorf("rename must publish an update of the host: %+v", ev)
+	}
+	if body := h.do("GET", page, c, nil, false).Body.String(); !strings.Contains(body, `<span class="crumb">pve-office</span>`) || !strings.Contains(body, `value="pve-office"`) {
+		t.Error("host page must show the new name")
+	}
+	list := h.do("GET", "/", c, nil, false).Body.String()
+	if !strings.Contains(list, `data-v="pve-office"><a href="`+page+`">pve-office</a><small class="hostname">pve</small>`) {
+		t.Error("the list must show the name with the hostname under it")
+	}
+	if !strings.Contains(h.logs.Text(), "server pve renamed to pve-office") {
+		t.Error("rename must be logged")
+	}
+	h.do("POST", page+"/label", c, url.Values{"label": {""}}, false)
+	if list := h.do("GET", "/", c, nil, false).Body.String(); strings.Contains(list, `class="hostname"`) {
+		t.Error("without a name the list shows only the hostname")
+	}
+}

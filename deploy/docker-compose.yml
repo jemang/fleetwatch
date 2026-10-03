@@ -23,6 +23,12 @@ services:
       - "${FLEETWATCH_PORT:-8080}:8080"
     volumes:
       - hub-data:/data
+    # The Hub logs every agent report; keep the Docker log file bounded.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
 volumes:

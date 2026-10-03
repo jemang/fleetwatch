@@ -104,8 +104,13 @@ var schemaV5 = []string{
 		last_used_at INTEGER)`,
 }
 
+var schemaV6 = []string{
+	// A name set on the Hub. Reports never touch it; empty shows the hostname.
+	`ALTER TABLE hosts ADD COLUMN label TEXT NOT NULL DEFAULT ''`,
+}
+
 // migrations[i] takes the schema from version i to version i+1.
-var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5}
+var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6}
 
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"

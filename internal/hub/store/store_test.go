@@ -236,3 +236,33 @@ func TestHostsOrderedByName(t *testing.T) {
 		t.Errorf("unknown host: err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestHostLabelSurvivesReportsAndNamesTheHost(t *testing.T) {
+	s := open(t)
+	agentID, hostID := enrolled(t, s)
+	if err := s.SetHostLabel(ctx, hostID, "office pve"); err != nil {
+		t.Fatal(err)
+	}
+	rep := protocol.Report{ProtocolVersion: 1, TS: 1, Inventory: &protocol.Inventory{Hostname: "pve"}}
+	if err := s.AcceptReport(ctx, agentID, rep, t0); err != nil {
+		t.Fatal(err)
+	}
+	h, _ := s.Host(ctx, hostID)
+	if h.Name != "office pve" || h.Label != "office pve" || h.Hostname != "pve" {
+		t.Errorf("labelled host = name %q label %q hostname %q, want the label kept over the reported hostname", h.Name, h.Label, h.Hostname)
+	}
+	s.CreateEnrollmentToken(ctx, "e2", t0, t0.Add(time.Minute))
+	s.Enroll(ctx, EnrollParams{EnrollTokenHash: "e2", Hostname: "beta", AgentTokenHash: "a2", ProtocolVersion: 1, Now: t0})
+	if hosts, _ := s.Hosts(ctx); len(hosts) != 2 || hosts[0].Name != "beta" {
+		t.Errorf("hosts must sort by the shown name: %+v", hosts)
+	}
+	if err := s.SetHostLabel(ctx, hostID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := s.Host(ctx, hostID); h.Name != "pve" || h.Label != "" {
+		t.Errorf("an empty label must fall back to the hostname: %+v", h)
+	}
+	if err := s.SetHostLabel(ctx, 999, "x"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown host: err = %v, want ErrNotFound", err)
+	}
+}
