@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -57,6 +58,12 @@ func TestAlertLifeCycle(t *testing.T) {
 	s.FireAlert(ctx, id, t0.Add(5*time.Minute))
 	s.MarkNotified(ctx, id, "firing")
 	s.ResolveAlert(ctx, id, t0.Add(10*time.Minute))
+	if one, err := s.Alert(ctx, id); err != nil || one.State() != "resolved" || !one.NotifiedFire || one.Detail != "CPU 93%" {
+		t.Errorf("Alert(%d) = %+v, %v", id, one, err)
+	}
+	if _, err := s.Alert(ctx, 999); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("Alert(999) err = %v, want sql.ErrNoRows", err)
+	}
 	all, _ := s.Alerts(ctx, 100)
 	var got *Alert
 	for i := range all {

@@ -238,6 +238,9 @@ td[data-tip] { cursor: default; }
 .alerts td.what b { font-weight: 600; }
 .alerts td.what span { margin-left: 12px; color: var(--ink-2); }
 .alerts td.when { color: var(--ink-2); }
+.alerts tr[data-href] { cursor: pointer; }
+.alerts tr[data-href]:hover td { background: rgba(60, 200, 238, 0.05); }
+.alerts td.what a { display: block; }
 .alerts td.act { width: 1%; padding-top: 6px; padding-bottom: 6px; }
 .alerts td.act form { margin: 0; }
 .alerts td.act button { padding: 3px 12px; font-size: 13px; }

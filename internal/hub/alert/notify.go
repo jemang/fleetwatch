@@ -6,35 +6,65 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
 // Message is one notification. Event is "firing", "resolved" or "test".
+// Zone is the time zone of the times in Text; nil is the Hub's local zone.
 type Message struct {
 	Event, Host, Kind, Subject, Detail string
 	Since, At                          time.Time
 	Hub                                string
+	Zone                               *time.Location
 }
 
+// Text is the message as people read it: the same fields as a row of the
+// Alerts page, one per line. Times are in the Hub's time zone (TZ).
 func (m Message) Text() string {
+	if m.Event == "test" {
+		return "[FleetWatch] Test message from " + m.Hub + ". Notifications work."
+	}
 	title := Title[m.Kind]
 	if title == "" {
 		title = m.Kind
 	}
-	if m.Event == "test" {
-		return "[FleetWatch] Test message from " + m.Hub + ". Notifications work."
+	if m.Detail != "" {
+		title += " (" + m.Detail + ")"
 	}
-	word := "ALERT"
+	state := "Firing"
 	if m.Event == "resolved" {
-		word = "RESOLVED"
+		state = "Resolved"
 		if m.Kind == KindOffline {
 			title = "Agent connected"
 		}
 	}
-	if m.Detail == "" {
-		return fmt.Sprintf("[FleetWatch] %s %s: %s", word, m.Host, title)
+	lines := []string{"[FleetWatch] " + state, "Host: " + m.Host, "Alert: " + title, "Since: " + m.stamp(m.Since)}
+	if m.Event == "resolved" {
+		lines = append(lines, "Ended: "+m.stamp(m.At)+" (after "+Lasted(m.At.Sub(m.Since))+")")
 	}
-	return fmt.Sprintf("[FleetWatch] %s %s: %s (%s)", word, m.Host, title, m.Detail)
+	return strings.Join(append(lines, "Hub: "+m.Hub), "\n")
+}
+
+func (m Message) stamp(t time.Time) string {
+	zone := m.Zone
+	if zone == nil {
+		zone = time.Local
+	}
+	return t.In(zone).Format("2006-01-02 15:04 MST")
+}
+
+// Lasted prints a duration in whole minutes, with days and hours when it has them.
+func Lasted(d time.Duration) string {
+	d = d.Round(time.Minute)
+	days, hours, mins := int(d.Hours())/24, int(d.Hours())%24, int(d.Minutes())%60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	}
+	return fmt.Sprintf("%dm", mins)
 }
 
 // Target is one place messages go.

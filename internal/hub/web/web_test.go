@@ -555,6 +555,50 @@ func TestAlertsPageAndDismiss(t *testing.T) {
 	}
 }
 
+func TestAlertDetailPage(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id := h.addRichHost("web<x>")
+	ctx := context.Background()
+	firing, _ := h.st.CreateAlert(ctx, id, "service_failed", "db.service", "db.service failed", h.clock.Add(-10*time.Minute), true)
+	h.st.MarkNotified(ctx, firing, "firing")
+	old, _ := h.st.CreateAlert(ctx, id, "disk_full", "/data", "/data 91%", h.clock.Add(-2*time.Hour), true)
+	h.st.MarkNotified(ctx, old, "firing")
+	h.st.ResolveAlert(ctx, old, h.clock.Add(-30*time.Minute))
+	quiet, _ := h.st.CreateAlert(ctx, id, "cpu_high", "", "CPU 95%", h.clock.Add(-time.Hour), true)
+	h.st.ResolveAlert(ctx, quiet, h.clock.Add(-50*time.Minute))
+	c := h.login()
+	if w := h.do("GET", "/alerts/"+strconv.FormatInt(firing, 10), nil, nil, false); w.Code != http.StatusSeeOther {
+		t.Errorf("alert page without session: %d", w.Code)
+	}
+	list := h.do("GET", "/alerts", c, nil, false).Body.String()
+	if !strings.Contains(list, `<tr data-href="/alerts/`+strconv.FormatInt(firing, 10)+`">`) || !strings.Contains(list, `<a href="/alerts/`+strconv.FormatInt(firing, 10)+`"><b>Service failed</b>`) {
+		t.Error("each row of the list must open the alert's page")
+	}
+	body := h.do("GET", "/alerts/"+strconv.FormatInt(firing, 10), c, nil, false).Body.String()
+	for _, want := range []string{`data-state="firing"`, `<a href="/hosts/1">web&lt;x&gt;</a>`, "Service failed", "db.service failed", "<dt>Lasting</dt><dd>10m</dd>",
+		"<td>Firing</td><td>sent</td>", "<td>Resolved</td><td>not yet: the problem is still there</td>", `action="/alerts/` + strconv.FormatInt(firing, 10) + `/dismiss"`, `<title>web&lt;x&gt;: Service failed`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("alert page is missing %q", want)
+		}
+	}
+	body = h.do("GET", "/alerts/"+strconv.FormatInt(old, 10), c, nil, false).Body.String()
+	for _, want := range []string{`data-state="resolved"`, "<dt>Lasted</dt><dd>1h 30m</dd>", "<dt>Ended</dt><dd data-time=", "<td>Resolved</td><td>being sent</td>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("resolved alert page is missing %q", want)
+		}
+	}
+	if strings.Contains(body, "/dismiss") {
+		t.Error("a resolved alert cannot be dismissed")
+	}
+	body = h.do("GET", "/alerts/"+strconv.FormatInt(quiet, 10), c, nil, false).Body.String()
+	if !strings.Contains(body, "<td>Firing</td><td>none: it ended before the message went out</td>") || !strings.Contains(body, "<td>Resolved</td><td>none</td>") {
+		t.Error("an alert that ended before its message went out says so")
+	}
+	if w := h.do("GET", "/alerts/999", c, nil, false); w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "No such alert") {
+		t.Errorf("unknown alert: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestSettingsPage(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	c := h.login()

@@ -18,7 +18,7 @@
 
 {{define "alertlist"}}{{if .Alerts}}<table class="hosts plain alerts">
   <thead><tr><th>State</th><th>Host</th><th>Alert</th><th>Since</th><th>Ended</th><th aria-label="Action"></th></tr></thead>
-  <tbody>{{range .Alerts}}<tr><td><span class="astate" data-state="{{.State}}"><span class="dot"></span>{{.State}}</span></td><td class="mono"><a href="/hosts/{{.HostID}}">{{.Host}}</a></td><td class="what"><b>{{.Title}}</b>{{if .Detail}}<span>{{.Detail}}</span>{{end}}</td><td class="when" data-time="{{.Since}}">{{.SinceText}}</td><td class="when"{{if .Ended}} data-time="{{.Ended}}"{{end}}>{{if .Ended}}{{.EndedText}}{{else}}–{{end}}</td><td class="act">{{if eq .State "firing"}}<form method="post" action="/alerts/{{.ID}}/dismiss"><button>Dismiss</button></form>{{end}}</td></tr>{{end}}</tbody>
+  <tbody>{{range .Alerts}}<tr data-href="/alerts/{{.ID}}"><td><span class="astate" data-state="{{.State}}"><span class="dot"></span>{{.State}}</span></td><td class="mono"><a href="/hosts/{{.HostID}}">{{.Host}}</a></td><td class="what"><a href="/alerts/{{.ID}}"><b>{{.Title}}</b>{{if .Detail}}<span>{{.Detail}}</span>{{end}}</a></td><td class="when" data-time="{{.Since}}">{{.SinceText}}</td><td class="when"{{if .Ended}} data-time="{{.Ended}}"{{end}}>{{if .Ended}}{{.EndedText}}{{else}}–{{end}}</td><td class="act">{{if eq .State "firing"}}<form method="post" action="/alerts/{{.ID}}/dismiss"><button>Dismiss</button></form>{{end}}</td></tr>{{end}}</tbody>
 </table>{{else}}<p class="empty">No alerts. FleetWatch lists a host here when it stops reporting, runs out of CPU, memory or disk, or when a service, guest or storage fails.</p>{{end}}{{end}}
 
 {{define "alerts"}}<!doctype html>
@@ -30,7 +30,47 @@
 <main>
   <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
   <div id="alert-list" hx-get="/alerts" hx-trigger="sse:nav" hx-swap="innerHTML">{{template "alertlist" .}}</div>
-  <p class="hint">Dismiss hides a firing alert and sends no further message for it. It comes back only if the problem ends and then happens again.</p>
+  <p class="hint">Dismiss hides a firing alert and sends no further message for it. It comes back only if the problem ends and then happens again. Open a row for its details.</p>
+</main>
+{{template "foot" .}}
+{{template "scripts"}}
+</body>
+</html>{{end}}
+
+{{define "alert"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" (print .A.Host ": " .A.Title)}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+<header class="top">
+  <h1><a href="/">{{template "brand"}}</a><span class="crumb">{{.A.Title}}</span></h1>
+  <div class="actions">
+    <a class="button" href="/alerts">All alerts</a>
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <dl class="facts">
+    <div><dt>State</dt><dd><span class="astate" data-state="{{.A.State}}"><span class="dot"></span>{{.A.State}}</span></dd></div>
+    <div><dt>Host</dt><dd><a href="/hosts/{{.A.HostID}}">{{.A.Host}}</a></dd></div>
+    <div><dt>Alert</dt><dd>{{.A.Title}}</dd></div>
+    <div><dt>Detail</dt><dd>{{if .A.Detail}}{{.A.Detail}}{{else}}–{{end}}</dd></div>
+  </dl>
+  <dl class="facts">
+    <div><dt>Since</dt><dd data-time="{{.A.Since}}" data-secs="1">{{.A.SinceText}}</dd></div>
+    <div><dt>Fired</dt><dd{{if .A.Fired}} data-time="{{.A.Fired}}" data-secs="1"{{end}}>{{if .A.Fired}}{{.A.FiredText}}{{else}}–{{end}}</dd></div>
+    <div><dt>Ended</dt><dd{{if .A.Ended}} data-time="{{.A.Ended}}" data-secs="1"{{end}}>{{if .A.Ended}}{{.A.EndedText}}{{else}}–{{end}}</dd></div>
+    <div><dt>{{if .A.Ended}}Lasted{{else}}Lasting{{end}}</dt><dd>{{.A.Lasted}}</dd></div>
+  </dl>
+  {{if .A.Dismissed}}<p class="note">Dismissed <span data-time="{{.A.Dismissed}}" data-secs="1">{{.A.DismissedText}}</span>: hidden from the count, and no message goes out when it ends.</p>{{end}}
+  <h2>Messages</h2>
+  <table class="hosts plain">
+    <thead><tr><th>Message</th><th>Status</th></tr></thead>
+    <tbody><tr><td>Firing</td><td>{{.A.FireMsg}}</td></tr><tr><td>Resolved</td><td>{{.A.ResolveMsg}}</td></tr></tbody>
+  </table>
+  <p class="hint">Messages go to the targets in Settings: the webhook and Telegram. Without a target a message counts as sent.</p>
+  {{if eq .A.State "firing"}}<form class="agentbar" method="post" action="/alerts/{{.A.ID}}/dismiss"><p>Dismiss hides this alert and sends no further message for it. It comes back only if the problem ends and then happens again.</p><button>Dismiss</button></form>{{end}}
 </main>
 {{template "foot" .}}
 {{template "scripts"}}

@@ -123,7 +123,8 @@ func TestWebhookAndTelegram(t *testing.T) {
 		w.WriteHeader(code)
 	}))
 	defer srv.Close()
-	msg := Message{Event: "firing", Host: "web-01", Kind: KindCPU, Detail: "CPU 93%", Since: t0, At: t0.Add(5 * time.Minute), Hub: "hub.example.com"}
+	msg := Message{Event: "firing", Host: "web-01", Kind: KindCPU, Detail: "CPU 93%", Since: t0, At: t0.Add(5 * time.Minute), Hub: "hub.example.com", Zone: time.UTC}
+	firingText := "[FleetWatch] Firing\nHost: web-01\nAlert: CPU high (CPU 93%)\nSince: 2026-09-21 14:13 UTC\nHub: hub.example.com"
 
 	targets := Targets(map[string]string{"webhook_url": srv.URL + "/hook"}, "")
 	if len(targets) != 1 || targets[0].Name != "Webhook" {
@@ -148,23 +149,30 @@ func TestWebhookAndTelegram(t *testing.T) {
 	if err := targets[0].Send(context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
-	if path != "/bot123:abc/sendMessage" || body["chat_id"] != "-100200" || body["text"] != "[FleetWatch] ALERT web-01: CPU high (CPU 93%)" {
+	if path != "/bot123:abc/sendMessage" || body["chat_id"] != "-100200" || body["text"] != firingText {
 		t.Errorf("telegram request: %s %v", path, body)
 	}
 	if got := Targets(map[string]string{"telegram_token": "123:abc"}, ""); len(got) != 0 {
 		t.Error("Telegram needs both the token and the chat ID")
 	}
+	if msg.Text() != firingText {
+		t.Errorf("firing text = %q", msg.Text())
+	}
 	resolved := msg
 	resolved.Event = "resolved"
-	if resolved.Text() != "[FleetWatch] RESOLVED web-01: CPU high (CPU 93%)" {
+	resolved.At = t0.Add(80 * time.Minute)
+	want := "[FleetWatch] Resolved\nHost: web-01\nAlert: CPU high (CPU 93%)\nSince: 2026-09-21 14:13 UTC\nEnded: 2026-09-21 15:33 UTC (after 1h 20m)\nHub: hub.example.com"
+	if resolved.Text() != want {
 		t.Errorf("resolved text = %q", resolved.Text())
 	}
-	down := Message{Event: "firing", Host: "web-01", Kind: KindOffline}
-	if down.Text() != "[FleetWatch] ALERT web-01: Agent disconnected" {
+	down := Message{Event: "firing", Host: "web-01", Kind: KindOffline, Since: t0, At: t0.Add(time.Minute), Hub: "hub.example.com", Zone: time.UTC}
+	want = "[FleetWatch] Firing\nHost: web-01\nAlert: Agent disconnected\nSince: 2026-09-21 14:13 UTC\nHub: hub.example.com"
+	if down.Text() != want {
 		t.Errorf("offline text = %q", down.Text())
 	}
-	down.Event = "resolved"
-	if down.Text() != "[FleetWatch] RESOLVED web-01: Agent connected" {
+	down.Event, down.At = "resolved", t0.Add(time.Minute)
+	want = "[FleetWatch] Resolved\nHost: web-01\nAlert: Agent connected\nSince: 2026-09-21 14:13 UTC\nEnded: 2026-09-21 14:14 UTC (after 1m)\nHub: hub.example.com"
+	if down.Text() != want {
 		t.Errorf("back online text = %q", down.Text())
 	}
 }

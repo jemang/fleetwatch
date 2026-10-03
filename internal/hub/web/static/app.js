@@ -265,6 +265,12 @@
   // A live update can replace the cell the tooltip points at.
   document.body.addEventListener('htmx:afterSwap', function () { if (tipFor && !tipFor.isConnected) hideTip(); });
 
+  // A row with data-href opens that page, unless a link or button in it was hit.
+  document.body.addEventListener('click', function (e) {
+    var row = e.target.closest('tr[data-href]');
+    if (row && !e.target.closest('a, button, form')) location.href = row.dataset.href;
+  });
+
   document.body.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-copy]');
     if (!btn) return;

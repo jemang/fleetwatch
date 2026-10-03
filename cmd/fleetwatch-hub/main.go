@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the image has no zoneinfo; TZ needs it
 
 	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/api"

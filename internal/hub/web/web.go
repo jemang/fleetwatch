@@ -129,6 +129,7 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /hosts/{id}/delete", w.requireSession(w.deleteHost))
 	mux.HandleFunc("POST /servers/enroll-token", w.requireSession(w.enrollToken))
 	mux.HandleFunc("GET /alerts", w.requireSession(w.alertsPage))
+	mux.HandleFunc("GET /alerts/{id}", w.requireSession(w.alertPage))
 	mux.HandleFunc("POST /alerts/{id}/dismiss", w.requireSession(w.dismissAlert))
 	mux.HandleFunc("GET /logs", w.requireSession(w.logsPage))
 	mux.HandleFunc("GET /logs.txt", w.requireSession(w.logsText))

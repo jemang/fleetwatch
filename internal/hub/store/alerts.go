@@ -61,6 +61,18 @@ func (s *Store) queryAlerts(ctx context.Context, query string, args ...any) ([]A
 	return out, rows.Err()
 }
 
+// Alert returns one alert; sql.ErrNoRows when there is none with that id.
+func (s *Store) Alert(ctx context.Context, id int64) (Alert, error) {
+	out, err := s.queryAlerts(ctx, alertSelect+` WHERE a.id = ?`, id)
+	if err == nil && len(out) == 0 {
+		err = sql.ErrNoRows
+	}
+	if err != nil {
+		return Alert{}, err
+	}
+	return out[0], nil
+}
+
 func (s *Store) OpenAlerts(ctx context.Context) ([]Alert, error) {
 	return s.queryAlerts(ctx, alertSelect+` WHERE a.resolved_at IS NULL ORDER BY a.id`)
 }

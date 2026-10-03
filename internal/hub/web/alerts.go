@@ -54,6 +54,77 @@ type alertsData struct {
 	Alerts []AlertRow
 }
 
+// AlertView is one alert on its own page.
+type AlertView struct {
+	AlertRow
+	Fired, Dismissed         int64
+	FiredText, DismissedText string
+	Lasted                   string // how long the condition lasted, or has lasted
+	FireMsg, ResolveMsg      string // what happened to the two messages
+}
+
+func BuildAlertView(a store.Alert, now time.Time) AlertView {
+	v := AlertView{AlertRow: BuildAlertRows([]store.Alert{a})[0]}
+	if !a.FiredAt.IsZero() {
+		v.Fired, v.FiredText = a.FiredAt.Unix(), timeText(a.FiredAt)
+	}
+	if !a.DismissedAt.IsZero() {
+		v.Dismissed, v.DismissedText = a.DismissedAt.Unix(), timeText(a.DismissedAt)
+	}
+	end := now
+	if !a.ResolvedAt.IsZero() {
+		end = a.ResolvedAt
+	}
+	v.Lasted = alert.Lasted(end.Sub(a.PendingSince))
+	// Mirrors Engine.notify: a dismissed alert gets no resolved message, and
+	// one that ends before its firing message went out gets none at all.
+	resolved, dismissed := !a.ResolvedAt.IsZero(), !a.DismissedAt.IsZero()
+	v.FireMsg, v.ResolveMsg = "not yet: the alert is still pending", "not yet: the problem is still there"
+	switch {
+	case a.FiredAt.IsZero():
+	case !a.NotifiedFire && (resolved || dismissed):
+		v.FireMsg, v.ResolveMsg = "none: it ended before the message went out", "none"
+	case !a.NotifiedFire:
+		v.FireMsg = "being sent"
+	default:
+		v.FireMsg = "sent"
+		switch {
+		case dismissed:
+			v.ResolveMsg = "none: the alert was dismissed"
+		case resolved && a.NotifiedResolve:
+			v.ResolveMsg = "sent"
+		case resolved:
+			v.ResolveMsg = "being sent"
+		}
+	}
+	return v
+}
+
+type alertPageData struct {
+	chrome
+	A AlertView
+}
+
+func (w *Web) alertPage(rw http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	var a store.Alert
+	if err == nil {
+		a, err = w.st.Alert(r.Context(), id)
+	}
+	if err != nil {
+		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		rw.WriteHeader(http.StatusNotFound)
+		rw.Write([]byte("No such alert.\n"))
+		return
+	}
+	rows, err := w.rows(r)
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.render(rw, http.StatusOK, "alert", alertPageData{chrome: w.chrome(r, "alerts", rows), A: BuildAlertView(a, w.now())})
+}
+
 func (w *Web) alertsPage(rw http.ResponseWriter, r *http.Request) {
 	alerts, err := w.st.Alerts(r.Context(), resolvedShown)
 	if err != nil {
