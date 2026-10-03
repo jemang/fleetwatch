@@ -104,7 +104,7 @@ func (s *Sampler) Sample() (protocol.Metrics, *protocol.Inventory) {
 	if s.slowAt.IsZero() || now.Sub(s.slowAt) >= SlowEvery {
 		s.slowAt = now
 		s.disks, _ = s.diskG.run(s.Timeout, func() ([]protocol.Disk, error) { return ReadDisks(root, statfs) })
-		s.net, _ = s.netG.run(s.Timeout, func() ([]protocol.NetIf, error) { return ReadNet(root) })
+		s.net, _ = s.netG.run(s.Timeout, func() ([]protocol.NetIf, error) { return ReadNet(root, s.Addrs) })
 		if names, list := s.Services, s.ListServices; len(names) > 0 {
 			svc, ok := []protocol.Service(nil), false
 			if list != nil {

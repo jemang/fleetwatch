@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"fleetwatch/internal/hub/dist"
 	"fleetwatch/internal/hub/limit"
 	"fleetwatch/internal/hub/live"
+	"fleetwatch/internal/hub/logbuf"
 	"fleetwatch/internal/hub/store"
 	"fleetwatch/internal/hub/web"
 	"fleetwatch/internal/release/pubkey"
@@ -30,6 +32,9 @@ func main() {
 
 // slowRequest is the duration from which a request is worth a log line.
 const slowRequest = time.Second
+
+// keptLogLines is how many of the Hub's own log lines the Logs page can show.
+const keptLogLines = 3000
 
 type statusWriter struct {
 	http.ResponseWriter
@@ -115,10 +120,13 @@ func run() error {
 	}
 
 	limit.SetTrustedProxies(cfg.TrustedProxies)
+	// The Logs page shows the last lines; stderr stays the archive (docker logs).
+	logs := logbuf.New(keptLogLines, time.Now)
+	log.SetOutput(io.MultiWriter(os.Stderr, logs))
 	bus := live.New()
 	mux := http.NewServeMux()
 	api.New(st, bus, time.Now).Routes(mux)
-	ui, err := web.New(st, bus, time.Now, cfg.PublicURL, cfg.SecureCookies())
+	ui, err := web.New(st, bus, logs, time.Now, cfg.PublicURL, cfg.SecureCookies())
 	if err != nil {
 		return err
 	}

@@ -33,11 +33,17 @@ func TestBuildRowOnline(t *testing.T) {
 	if !r.Online || r.Name != "pve-01" || r.LastSeenUnix != now.Add(-6*time.Second).Unix() {
 		t.Errorf("row = %+v", r)
 	}
-	if r.CPU != (Usage{Known: true, Pct: 14}) || r.RAM != (Usage{Known: true, Pct: 60}) {
+	if r.CPU != (Usage{Known: true, Pct: 14, Tip: "14.2%"}) || r.RAM != (Usage{Known: true, Pct: 60, Tip: "600 B / 1000 B"}) {
 		t.Errorf("cpu = %+v ram = %+v", r.CPU, r.RAM)
 	}
-	if r.Disk != (Usage{Known: true, Pct: 90, Warn: true, Label: "/data"}) {
+	// The bar is the fullest disk; the tooltip names every disk, fullest first.
+	if r.Disk != (Usage{Known: true, Pct: 90, Warn: true, Tip: "/data: 900 B / 1000 B (90%)\n/: 400 B / 1000 B (40%)"}) {
 		t.Errorf("disk must be the mount with the highest usage: %+v", r.Disk)
+	}
+	h := onlineHost()
+	h.Inventory.Cores = 4
+	if r := BuildRow(h, now); r.CPU.Tip != "14.2% of 4 cores" {
+		t.Errorf("cpu tip with the core count = %q", r.CPU.Tip)
 	}
 	if r.Uptime != "42d 0h" {
 		t.Errorf("uptime = %q", r.Uptime)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -172,6 +173,7 @@ type world struct {
 	agents map[string]int64
 	ts     int64
 	events <-chan live.Event
+	logged []string
 }
 
 func newWorld(t *testing.T) *world {
@@ -187,6 +189,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(cancel)
 	w.events = events
 	w.eng = &Engine{St: st, Bus: bus, Now: func() time.Time { return w.now }, Hub: "hub",
+		Log: func(format string, args ...any) { w.logged = append(w.logged, fmt.Sprintf(format, args...)) },
 		Send: func(_ context.Context, _ map[string]string, m Message) error {
 			if w.fail {
 				return errors.New("target down")
@@ -269,6 +272,28 @@ func TestEngineFiresOnlyAfterTheWaitingTime(t *testing.T) {
 		}
 	default:
 		t.Error("a change of alert state must be published for the dashboard")
+	}
+}
+
+func TestEngineLogsFiringResolvedAndDelivery(t *testing.T) {
+	w := newWorld(t)
+	w.report("web-01", protocol.Metrics{CPUPct: f(95)})
+	w.tick(0)
+	w.now = w.now.Add(5 * time.Minute)
+	w.report("web-01", protocol.Metrics{CPUPct: f(95)})
+	w.tick(0)
+	w.report("web-01", protocol.Metrics{CPUPct: f(20)})
+	w.tick(15 * time.Second)
+	got := strings.Join(w.logged, "\n")
+	for _, want := range []string{
+		"alert fired: cpu_high on web-01 (CPU 95%)",
+		"\"firing\" message for cpu_high on web-01 delivered",
+		"alert resolved: cpu_high on web-01",
+		"\"resolved\" message for cpu_high on web-01 delivered",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 }
 

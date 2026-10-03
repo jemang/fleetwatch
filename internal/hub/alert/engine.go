@@ -97,6 +97,10 @@ func (e *Engine) Tick(ctx context.Context) error {
 	for _, a := range open {
 		byKey[alertKey{a.HostID, a.Kind, a.Subject}] = a
 	}
+	names := make(map[int64]string, len(hosts))
+	for _, h := range hosts {
+		names[h.ID] = h.Name
+	}
 
 	changed := false
 	wrong := map[alertKey]bool{}
@@ -117,6 +121,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 			if err := e.St.FireAlert(ctx, a.ID, now); err != nil {
 				return err
 			}
+			e.logf("alert fired: %s on %s (%s)", c.Kind, names[c.HostID], c.Detail)
 			changed = true
 		}
 	}
@@ -128,6 +133,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 			err = e.St.DeleteAlert(ctx, a.ID) // it cleared before it fired: leave no trace
 		} else {
 			err = e.St.ResolveAlert(ctx, a.ID, now)
+			e.logf("alert resolved: %s on %s", a.Kind, a.Host)
 		}
 		if err != nil {
 			return err
@@ -178,6 +184,7 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 			e.logf("alerts: %q message for %s on %s not delivered: %v", event, a.Kind, a.Host, err)
 			continue
 		}
+		e.logf("alerts: %q message for %s on %s delivered", event, a.Kind, a.Host)
 		e.St.MarkNotified(ctx, a.ID, event)
 	}
 }

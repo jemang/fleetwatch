@@ -114,6 +114,77 @@ func TestInstallScript(t *testing.T) {
 	}
 }
 
+// pveTokenRun runs the installer's pve_token with stand-ins for pvesh and
+// uname, and returns its output and the calls pvesh received.
+func pveTokenRun(t *testing.T, script string, userExists, tokenFails bool) (out, calls string) {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not installed")
+	}
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "uname"), []byte("#!/bin/sh\necho pve+1.example.com\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "pvesh"), []byte(`#!/bin/sh
+echo "$*" >> "$LOG"
+case "$1 $2" in
+"get /access/users/fleetwatch@pve") [ "$USER_EXISTS" = 1 ] || { echo "no such user ('fleetwatch@pve')" >&2; exit 2; } ;;
+"delete /access/users/fleetwatch@pve/token/"*) echo "no such token" >&2; exit 2 ;;
+"create /access/users/fleetwatch@pve/token/"*)
+  [ "$TOKEN_FAILS" = 1 ] && { echo "cluster not ready - no quorum? (500)" >&2; exit 2; }
+  printf '{"full-tokenid":"fleetwatch@pve!x","info":{"privsep":"0"},\n "value" : "87672d09-0afc-4557-af63-18abe0ac98c5"}\n' ;;
+esac
+`), 0o755)
+	log := filepath.Join(t.TempDir(), "calls")
+	driver := strings.TrimSuffix(script, "main \"$@\"\n") + `tmp=$(mktemp -d)
+if pve_token; then echo "ok id=$FLEETWATCH_PVE_TOKEN_ID secret=$FLEETWATCH_PVE_TOKEN_SECRET"; bash -c 'echo "child sees $FLEETWATCH_PVE_TOKEN_ID"'; else echo "failed: $pve_err"; fi
+`
+	cmd := exec.Command("bash")
+	cmd.Stdin = strings.NewReader(driver)
+	flag := func(b bool) string {
+		if b {
+			return "1"
+		}
+		return "0"
+	}
+	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "LOG="+log, "USER_EXISTS="+flag(userExists), "TOKEN_FAILS="+flag(tokenFails))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("driver: %v\n%s", err, b)
+	}
+	c, _ := os.ReadFile(log)
+	return string(b), string(c)
+}
+
+func TestInstallScriptCreatesProxmoxToken(t *testing.T) {
+	e := setup(t, "https://hub.example.com", true)
+	script := e.get("/install/" + e.token()).Body.String()
+
+	out, calls := pveTokenRun(t, script, false, false)
+	want := "ok id=fleetwatch@pve!agent-pve-1 secret=87672d09-0afc-4557-af63-18abe0ac98c5\nchild sees fleetwatch@pve!agent-pve-1\n"
+	if out != want {
+		t.Errorf("output %q, want %q", out, want)
+	}
+	for _, c := range []string{
+		"get /access/users/fleetwatch@pve", "create /access/users --userid fleetwatch@pve",
+		"set /access/acl --path / --users fleetwatch@pve --roles PVEAuditor",
+		"delete /access/users/fleetwatch@pve/token/agent-pve-1",
+		"create /access/users/fleetwatch@pve/token/agent-pve-1 --privsep 0",
+	} {
+		if !strings.Contains(calls, c) {
+			t.Errorf("pvesh was not called with %q; calls:\n%s", c, calls)
+		}
+	}
+
+	_, calls = pveTokenRun(t, script, true, false)
+	if strings.Contains(calls, "create /access/users --userid") {
+		t.Errorf("an existing user must not be created again; calls:\n%s", calls)
+	}
+
+	out, _ = pveTokenRun(t, script, true, true)
+	if !strings.HasPrefix(out, "failed: ") || !strings.Contains(out, "no quorum") {
+		t.Errorf("a failed token must report the reason from pvesh: %q", out)
+	}
+}
+
 func TestInstallScriptForPlainHTTPHub(t *testing.T) {
 	e := setup(t, "http://192.168.1.5:8080", true)
 	body := e.get("/install/" + e.token()).Body.String()

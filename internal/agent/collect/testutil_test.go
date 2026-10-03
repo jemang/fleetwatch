@@ -43,6 +43,7 @@ func fullTree(t *testing.T) string {
 		"etc/os-release":            "NAME=\"Debian\"\nPRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\n",
 
 		"sys/class/net/eth0/operstate":           "up\n",
+		"sys/class/net/eth0/device":              "",
 		"sys/class/net/eth0/statistics/rx_bytes": "1000\n",
 		"sys/class/net/eth0/statistics/tx_bytes": "2000\n",
 	})

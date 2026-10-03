@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,6 @@ type Usage struct {
 	Known bool
 	Pct   int
 	Warn  bool
-	Label string
 	Tip   string // amounts behind the percentage, shown on hover
 }
 
@@ -138,9 +138,9 @@ func (a *statAcc) stat() Stat {
 	return a.best
 }
 
-func usage(pct float64, warnAt int, label string) Usage {
+func usage(pct float64, warnAt int, tip string) Usage {
 	n := min(max(int(math.Round(pct)), 0), 100)
-	return Usage{Known: true, Pct: n, Warn: n >= warnAt, Label: label}
+	return Usage{Known: true, Pct: n, Warn: n >= warnAt, Tip: tip}
 }
 
 func ratio(used, total uint64) float64 { return float64(used) / float64(total) * 100 }
@@ -161,19 +161,30 @@ func BuildRow(h store.Host, now time.Time) HostRow {
 	}
 	m := h.Metrics
 	if m.CPUPct != nil {
-		row.CPU = usage(*m.CPUPct, warnCPU, "")
+		tip := strconv.FormatFloat(*m.CPUPct, 'f', 1, 64) + "%"
+		if h.Inventory != nil && h.Inventory.Cores > 0 {
+			tip += " of " + strconv.Itoa(h.Inventory.Cores) + " cores"
+		}
+		row.CPU = usage(*m.CPUPct, warnCPU, tip)
 	}
 	if m.Mem != nil && m.Mem.Total > 0 {
-		row.RAM = usage(ratio(m.Mem.Used, m.Mem.Total), warnRAM, "")
+		row.RAM = usage(ratio(m.Mem.Used, m.Mem.Total), warnRAM, fmtBytes(m.Mem.Used)+" / "+fmtBytes(m.Mem.Total))
 	}
-	worst := -1.0
+	// The bar shows the fullest disk; the tooltip lists all, fullest first.
+	disks := make([]protocol.Disk, 0, len(m.Disks))
 	for _, d := range m.Disks {
-		if d.Total == 0 {
-			continue
+		if d.Total > 0 {
+			disks = append(disks, d)
 		}
-		if p := ratio(d.Used, d.Total); p > worst {
-			worst, row.Disk = p, usage(p, warnDisk, d.Mount)
+	}
+	sort.SliceStable(disks, func(i, j int) bool { return ratio(disks[i].Used, disks[i].Total) > ratio(disks[j].Used, disks[j].Total) })
+	if len(disks) > 0 {
+		lines := make([]string, len(disks))
+		for i, d := range disks {
+			p := ratio(d.Used, d.Total)
+			lines[i] = fmt.Sprintf("%s: %s / %s (%d%%)", d.Mount, fmtBytes(d.Used), fmtBytes(d.Total), int(math.Round(p)))
 		}
+		row.Disk = usage(ratio(disks[0].Used, disks[0].Total), warnDisk, strings.Join(lines, "\n"))
 	}
 	if m.UptimeS > 0 {
 		row.Uptime, row.UptimeS = fmtUptime(m.UptimeS), m.UptimeS

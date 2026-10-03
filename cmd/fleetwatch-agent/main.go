@@ -319,6 +319,7 @@ func uninstall(args []string, stdout, stderr io.Writer) int {
 	// Only the files the installer made are removed, then the directory if it
 	// is empty. A wrong --config can therefore not delete anything else.
 	dir := filepath.Dir(*cfgPath)
+	cfg, _ := config.Load(*cfgPath, func(string) string { return "" })
 	step("Config and credential removed", errors.Join(os.Remove(*cfgPath), os.Remove(filepath.Join(dir, "pve-root-ca.pem"))))
 	os.Remove(dir)
 	exe, err := executable()
@@ -328,6 +329,9 @@ func uninstall(args []string, stdout, stderr io.Writer) int {
 	step("Program removed", err)
 	if _, err := user.Lookup(svcUser); err == nil {
 		fmt.Fprintf(stdout, "\nThe system user %q was left in place, because removing it needs another program. Remove it with: userdel %s\n", svcUser, svcUser)
+	}
+	if user, token, ok := strings.Cut(cfg.Proxmox.TokenID, "!"); ok {
+		fmt.Fprintf(stdout, "\nThe Proxmox API token was left in place. Remove it with: pveum user token remove %s %s\n", user, token)
 	}
 	if failed {
 		return 1
@@ -368,6 +372,7 @@ func runAgent(args []string, stderr io.Writer) int {
 		}
 		if proxmox.Client, err = pve.NewClient(pc); err != nil {
 			logger.Printf("Proxmox API not usable, guests will not be reported: %v", err)
+			proxmox.Problem = err.Error()
 		}
 	}
 	if proxmox.Detected() {

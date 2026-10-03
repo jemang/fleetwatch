@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"errors"
 	"net/netip"
 	"reflect"
 	"testing"
@@ -11,12 +12,47 @@ func TestReadNetSkipsLoopbackAndNonInterfaces(t *testing.T) {
 	writeInto(t, root, "sys/class/net/lo/operstate", "unknown\n")
 	writeInto(t, root, "sys/class/net/lo/statistics/rx_bytes", "9\n")
 	writeInto(t, root, "sys/class/net/bonding_masters", "\n")
-	got, err := ReadNet(root)
+	got, err := ReadNet(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Name != "eth0" || got[0].State != "up" || got[0].RxBytes != 1000 || got[0].TxBytes != 2000 {
 		t.Errorf("net = %+v", got)
+	}
+}
+
+// A Proxmox node has a firewall bridge, link and tap device per guest; only
+// physical interfaces and those with an address are reported.
+func TestReadNetSkipsVirtualInterfacesWithoutAddress(t *testing.T) {
+	root := t.TempDir()
+	for _, n := range []string{"enp1s0", "enp2s0", "vmbr0", "vmbr1", "fwbr100i0", "fwln100i0", "fwpr100p0", "tap100i0", "veth101i0", "tailscale0"} {
+		writeInto(t, root, "sys/class/net/"+n+"/operstate", "up\n")
+	}
+	writeInto(t, root, "sys/class/net/enp1s0/device", "")
+	writeInto(t, root, "sys/class/net/enp2s0/device", "")
+	addrs := func() (map[string][]netip.Addr, error) {
+		return map[string][]netip.Addr{
+			"vmbr0":      {netip.MustParseAddr("192.168.10.5"), netip.MustParseAddr("fe80::1")},
+			"tailscale0": {netip.MustParseAddr("100.64.0.7")},
+			"tap100i0":   {netip.MustParseAddr("fe80::2")},
+			"vmbr1":      nil,
+		}, nil
+	}
+	got, err := ReadNet(root, addrs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, n := range got {
+		names = append(names, n.Name)
+	}
+	if want := []string{"enp1s0", "enp2s0", "tailscale0", "vmbr0"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("interfaces = %v, want %v", names, want)
+	}
+
+	failing := func() (map[string][]netip.Addr, error) { return nil, errors.New("netlink") }
+	if got, _ := ReadNet(root, failing); len(got) != 10 {
+		t.Errorf("without addresses nothing may be hidden, got %d interfaces", len(got))
 	}
 }
 

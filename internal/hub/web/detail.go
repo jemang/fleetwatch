@@ -94,16 +94,13 @@ func buildPVE(p *protocol.Proxmox) *PVEView {
 		row.Mem.Tip = fmtBytes(g.MemMax) + " allocated, stopped"
 		row.Disk.Tip = fmtBytes(g.DiskMax) + " allocated, stopped"
 		if running {
-			row.CPU = usage(g.CPUPct, warnCPU, "")
-			row.CPU.Tip = strconv.FormatFloat(g.CPUPct, 'f', -1, 64) + "% of " + cpuCount(g.CPUs)
+			row.CPU = usage(g.CPUPct, warnCPU, strconv.FormatFloat(g.CPUPct, 'f', -1, 64)+"% of "+cpuCount(g.CPUs))
 			if g.MemMax > 0 {
-				row.Mem = usage(ratio(g.MemUsed, g.MemMax), warnRAM, "")
-				row.Mem.Tip = fmtBytes(g.MemUsed) + " / " + fmtBytes(g.MemMax)
+				row.Mem = usage(ratio(g.MemUsed, g.MemMax), warnRAM, fmtBytes(g.MemUsed)+" / "+fmtBytes(g.MemMax))
 			}
 			row.Disk.Tip = fmtBytes(g.DiskMax) + " allocated, usage not reported for VMs"
 			if g.DiskUsed > 0 && g.DiskMax > 0 { // Proxmox reports no disk usage for VMs
-				row.Disk = usage(ratio(g.DiskUsed, g.DiskMax), warnDisk, "")
-				row.Disk.Tip = fmtBytes(g.DiskUsed) + " / " + fmtBytes(g.DiskMax)
+				row.Disk = usage(ratio(g.DiskUsed, g.DiskMax), warnDisk, fmtBytes(g.DiskUsed)+" / "+fmtBytes(g.DiskMax))
 			}
 			if g.UptimeS > 0 {
 				row.Uptime = fmtUptime(g.UptimeS)

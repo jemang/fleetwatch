@@ -223,6 +223,29 @@ func TestUninstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Dir(exe)); err != nil {
 		t.Error("the directory of the program must stay")
 	}
+	if strings.Contains(out.String(), "pveum") {
+		t.Errorf("without a Proxmox token there is nothing to remove: %q", out.String())
+	}
+}
+
+// The agent starts no processes, so the Proxmox token stays; uninstall says
+// how to remove it.
+func TestUninstallNamesTheProxmoxToken(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeConfig(t, "https://hub.example.com", "proxmox:\n  token_id: fleetwatch@pve!agent-pve1\n  token_secret: s\n")
+	exe := filepath.Join(dir, "fleetwatch-agent")
+	os.WriteFile(exe, []byte("agent"), 0o755)
+	seams(t, &fakeManager{}, false)
+	unitPath = filepath.Join(dir, "fleetwatch-agent.service")
+	executable = func() (string, error) { return exe, nil }
+	isRoot = func() bool { return true }
+	var out, errOut bytes.Buffer
+	if code := run([]string{"uninstall", "--config", cfg}, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall: code %d, %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "pveum user token remove fleetwatch@pve agent-pve1") {
+		t.Errorf("output must name the token to remove: %q", out.String())
+	}
 }
 
 func TestUpgradeCommand(t *testing.T) {

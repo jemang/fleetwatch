@@ -141,7 +141,6 @@ th[aria-sort="descending"] .sort .arrows::after { border-top-color: var(--accent
 .usage .pct { display: block; margin-bottom: 5px; line-height: 1.2; font-size: 13px; }
 .usage .bar { display: block; height: 7px; border-radius: 3px; background: var(--track); overflow: hidden; }
 .usage .bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
-.usage .mount { display: inline-block; max-width: 14ch; margin-left: 14px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; color: var(--ink-2); }
 .usage.warn .pct { color: var(--warn); font-weight: 600; }
 .usage.warn .bar span { background: var(--warn); }
 .usage.none .pct { color: var(--ink-2); }
@@ -211,7 +210,7 @@ svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart.on .dot { display: block; fill: var(--accent); stroke: var(--panel-solid); stroke-width: 2; }
 .chart-box .tip { display: none; position: absolute; top: 34px; transform: translateX(-50%); padding: 2px 8px; font-size: 12px; white-space: pre; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
 .chart-box .tip.on { display: block; }
-.floattip { display: none; position: fixed; z-index: 50; max-width: min(320px, calc(100vw - 8px)); padding: 3px 9px; font-size: 12px; line-height: 1.4; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
+.floattip { display: none; position: fixed; z-index: 50; max-width: min(320px, calc(100vw - 8px)); padding: 3px 9px; font-size: 12px; line-height: 1.5; white-space: pre-line; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
 .floattip.on { display: block; }
 td[data-tip] { cursor: default; }
 
@@ -349,7 +348,6 @@ dialog .steplabel + pre { margin-top: 8px; }
   .sort { gap: 7px; }
   .usage .meter { width: 78px; }
   .usage .pct { font-size: 12px; }
-  .usage .mount { max-width: 11ch; margin-left: 8px; }
   .status { gap: 9px; }
   .tile { padding: 12px 14px 13px; }
   .tile .sub { font-size: 12px; }

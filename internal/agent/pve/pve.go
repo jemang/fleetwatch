@@ -136,7 +136,10 @@ type ipEntry struct {
 type Collector struct {
 	Root   string  // filesystem root, "" in production
 	Client *Client // nil when no API token is configured
-	Now    func() time.Time
+	// Problem says why a configured token has no Client, for example an
+	// unreadable CA file. Without it the Hub would ask for a token.
+	Problem string
+	Now     func() time.Time
 
 	ips map[int]ipEntry
 
@@ -186,6 +189,9 @@ func (c *Collector) Collect(ctx context.Context) *protocol.Proxmox {
 	}
 	p := &protocol.Proxmox{Detected: true}
 	if c.Client == nil {
+		if c.Problem != "" {
+			p.Configured, p.Error = true, c.Problem
+		}
 		return p
 	}
 	p.Configured = true

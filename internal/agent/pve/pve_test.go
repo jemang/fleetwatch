@@ -136,6 +136,10 @@ func TestCollectStates(t *testing.T) {
 	if got == nil || !got.Detected || got.Configured || got.Guests != nil {
 		t.Errorf("detected without a token = %+v", got)
 	}
+	got = (&Collector{Root: pveRoot(t), Problem: "pve: CA file: permission denied", Now: clock}).Collect(context.Background())
+	if got == nil || !got.Configured || got.Error != "pve: CA file: permission denied" {
+		t.Errorf("a token whose client could not be made must report why, not ask for a token: %+v", got)
+	}
 	f.status.Store(http.StatusUnauthorized)
 	got = (&Collector{Root: pveRoot(t), Client: f.client(t), Now: clock}).Collect(context.Background())
 	if got == nil || !got.Detected || !got.Configured || !strings.Contains(got.Error, "401") || got.Guests != nil {

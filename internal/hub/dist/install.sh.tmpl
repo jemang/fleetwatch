@@ -6,7 +6,9 @@
 # the service "fleetwatch-agent" (user "fleetwatch") and registers this server.
 # Optional settings, as environment variables:
 #   FLEETWATCH_SERVICES=nginx,docker        systemd units to watch
-#   FLEETWATCH_PVE_TOKEN_ID, FLEETWATCH_PVE_TOKEN_SECRET   read-only Proxmox API token
+#   FLEETWATCH_PVE_TOKEN_ID, FLEETWATCH_PVE_TOKEN_SECRET   read-only Proxmox API token;
+#                                           without them, one is created on a Proxmox node
+#   FLEETWATCH_PVE_SETUP=0                  do not create a Proxmox API token
 # Remove everything again with: sudo fleetwatch-agent uninstall
 set -euo pipefail
 
@@ -19,9 +21,37 @@ UNIT=/etc/systemd/system/fleetwatch-agent.service
 SVC_USER=fleetwatch
 # Global, because the clean-up runs after main has returned.
 tmp=""
+# Why pve_token failed.
+pve_err=""
 
 ok() { printf '\342\234\223 %s\n' "$1"; }
 fail() { printf '\342\234\227 %s\n' "$1" >&2; exit 1; }
+
+# pve_token creates the read-only API token of this node and exports it for
+# the registration. Proxmox shows a secret only once, so a token of the same
+# name is replaced. The user is shared by a cluster, the token name is not.
+pve_token() {
+  local user=fleetwatch@pve node name out
+  node="$(uname -n)"
+  node="${node%%.*}"
+  name="agent-${node//[^A-Za-z0-9._-]/-}"
+  if ! command -v pvesh >/dev/null 2>&1; then
+    pve_err="pvesh was not found"
+    return 1
+  fi
+  if ! pvesh get "/access/users/$user" >/dev/null 2>&1; then
+    out="$(pvesh create /access/users --userid "$user" --comment "FleetWatch agent, read-only" 2>&1)" || { pve_err="$out"; return 1; }
+  fi
+  out="$(pvesh set /access/acl --path / --users "$user" --roles PVEAuditor 2>&1)" || { pve_err="$out"; return 1; }
+  pvesh delete "/access/users/$user/token/$name" >/dev/null 2>&1 || true
+  out="$(pvesh create "/access/users/$user/token/$name" --privsep 0 --comment "FleetWatch agent on $node" --output-format json 2>&1)" || { pve_err="$out"; return 1; }
+  out="$(printf '%s' "$out" | tr -d '\n' | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f-]*\)".*/\1/p')"
+  if [ -z "$out" ]; then
+    pve_err="pvesh did not return the token secret"
+    return 1
+  fi
+  export FLEETWATCH_PVE_TOKEN_ID="$user!$name" FLEETWATCH_PVE_TOKEN_SECRET="$out"
+}
 
 main() {
   echo "Installing FleetWatch agent..."
@@ -70,6 +100,15 @@ main() {
   local args=(enroll --hub "$HUB" --token "$TOKEN") pve_hint=0 out
   if [ "$ALLOW_HTTP" = 1 ]; then args+=(--allow-insecure-http); fi
   if [ -d /etc/pve ]; then
+    if [ -z "${FLEETWATCH_PVE_TOKEN_ID:-}" ] || [ -z "${FLEETWATCH_PVE_TOKEN_SECRET:-}" ]; then
+      if [ "${FLEETWATCH_PVE_SETUP:-1}" = 0 ]; then
+        :
+      elif pve_token; then
+        ok "Proxmox API token $FLEETWATCH_PVE_TOKEN_ID created (read-only)"
+      else
+        printf '! The Proxmox API token could not be created: %s\n' "$pve_err" >&2
+      fi
+    fi
     if [ -n "${FLEETWATCH_PVE_TOKEN_ID:-}" ] && [ -n "${FLEETWATCH_PVE_TOKEN_SECRET:-}" ]; then
       # The service user cannot read /etc/pve, so it gets its own copy of the certificate.
       mkdir -p "$CONF_DIR"
@@ -103,11 +142,19 @@ main() {
       echo "$status"
       if [ "$pve_hint" = 1 ]; then
         echo
-        echo "This is a Proxmox node. To report its VMs, containers and storage, create a"
-        echo "read-only API token and add it to $CONF_DIR/agent.yaml (see README):"
+        echo "This is a Proxmox node, but it has no API token, so its VMs, containers and"
+        echo "storage are not reported. Create a read-only token:"
         echo "  pveum user add fleetwatch@pve"
         echo "  pveum acl modify / --users fleetwatch@pve --roles PVEAuditor"
         echo "  pveum user token add fleetwatch@pve agent --privsep 0"
+        echo "then give the agent the token and a copy of the certificate it can read:"
+        echo "  cp /etc/pve/pve-root-ca.pem $CONF_DIR/ && chown $SVC_USER $CONF_DIR/pve-root-ca.pem"
+        echo "  add to $CONF_DIR/agent.yaml:"
+        echo "    proxmox:"
+        echo "      token_id: fleetwatch@pve!agent"
+        echo "      token_secret: <the value pveum printed>"
+        echo "      ca_file: $CONF_DIR/pve-root-ca.pem"
+        echo "  systemctl restart fleetwatch-agent"
       fi
       return 0
     fi

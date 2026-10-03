@@ -17,11 +17,27 @@ func readUint(path string) uint64 {
 	return v
 }
 
-func ReadNet(root string) ([]protocol.NetIf, error) {
+// ReadNet skips the loopback and virtual interfaces without an address: the
+// bridges, tap and veth devices of guests and containers, which a Proxmox or
+// Docker host has dozens of. When the addresses cannot be read, it keeps them.
+func ReadNet(root string, addrs AddrsFunc) ([]protocol.NetIf, error) {
 	dir := filepath.Join(root, "/sys/class/net")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
+	}
+	var addressed map[string]bool
+	if addrs != nil {
+		if m, err := addrs(); err == nil {
+			addressed = map[string]bool{}
+			for name, as := range m {
+				for _, a := range as {
+					if !a.IsLinkLocalUnicast() {
+						addressed[name] = true
+					}
+				}
+			}
+		}
 	}
 	var out []protocol.NetIf
 	for _, e := range entries {
@@ -29,6 +45,12 @@ func ReadNet(root string) ([]protocol.NetIf, error) {
 		state := readTrim(filepath.Join(dir, name, "operstate"))
 		if name == "lo" || state == "" {
 			continue
+		}
+		if addressed != nil && !addressed[name] {
+			// Only hardware interfaces have a "device" link.
+			if _, err := os.Lstat(filepath.Join(dir, name, "device")); err != nil {
+				continue
+			}
 		}
 		out = append(out, protocol.NetIf{
 			Name:    name,
