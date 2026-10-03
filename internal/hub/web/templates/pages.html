@@ -1,0 +1,75 @@
+{{define "login"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Log in"}}</head>
+<body>
+<form class="login" method="post" action="/login">
+  <h1>{{template "brand"}}</h1>
+  <p class="tagline">Sign in to your fleet</p>
+  {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+  <label for="password">Admin password</label>
+  <div class="field">
+    <svg class="lead" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14.5v2.5"/></svg>
+    <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+    <button type="button" class="eye" id="show-password" aria-label="Show password" aria-pressed="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path class="slash" d="M4 4l16 16"/></svg></button>
+  </div>
+  <button class="primary"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M3 12h11M10 8l4 4-4 4"/></svg>Log in</button>
+  {{if .Passkey}}<div class="or"><span>or</span></div>
+  <button type="button" id="passkey-login"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5M14 9l2.5 2.5"/></svg>Use passkey</button>
+  <p id="passkey-msg" class="error" role="alert" hidden></p>{{end}}
+</form>
+<script>
+  // Show or hide the password; the eye gets a slash while it is shown.
+  (function () {
+    var btn = document.getElementById('show-password'), pw = document.getElementById('password');
+    btn.addEventListener('click', function () {
+      var show = pw.type === 'password';
+      pw.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-pressed', show);
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      pw.focus();
+    });
+  })();
+</script>
+{{if .Passkey}}<script src="/static/passkey.js"></script>{{end}}
+</body>
+</html>{{end}}
+
+{{define "sorthead"}}<th {{if .Active}}aria-sort="ascending"{{end}}><button type="button" class="sort" data-type="{{.Type}}">{{.Label}}<span class="arrows"></span></button></th>{{end}}
+
+{{define "hosts"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Hosts"}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+<header class="top">
+  <h1><a href="/">{{template "brand"}}</a></h1>
+  <label class="search">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+    <input id="search" type="search" placeholder="Search hosts..." aria-label="Search hosts" autocomplete="off">
+    <kbd>/</kbd>
+  </label>
+  <div class="actions">
+    <button id="add-server" class="primary" hx-post="/servers/enroll-token" hx-target="#enroll-body" hx-swap="innerHTML">+ Add Server</button>
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <section id="summary" class="tiles" sse-swap="summary" hx-swap="innerHTML">{{template "summary" .Summary}}</section>
+  <div class="scroll"><table class="hosts">
+    <thead><tr>{{range .Heads}}{{template "sorthead" .}}{{end}}</tr></thead>
+    <tbody id="host-rows" sse-swap="host-new" hx-swap="beforeend">{{range .Rows}}{{template "row" .}}{{end}}</tbody>
+  </table></div>
+  <p id="empty" class="empty">No servers yet. Choose <strong>+ Add Server</strong> and run the command on a Linux server.</p>
+  <p id="nomatch" class="nomatch" role="status" hidden>No host matches the search.</p>
+</main>
+{{template "foot" .}}
+<dialog id="enroll-dialog">
+  <div id="enroll-body"></div>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+<script src="/static/htmx.min.js"></script>
+<script src="/static/sse.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>{{end}}

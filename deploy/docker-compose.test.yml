@@ -1,0 +1,46 @@
+# Simulation servers for development and deploy/e2e.sh. Always together with
+# the main file (and the build file, to run the Hub from this checkout):
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml -f deploy/docker-compose.test.yml up -d
+# Drop them, keeping the Hub and its data:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml rm -sf agent-test agent-pve-test hook-test
+# Their enrollment credentials live in the two volumes below; remove those by
+# hand when the hosts are gone from the dashboard for good.
+services:
+  # A test agent that enrolls with ENROLL_TOKEN on first start.
+  agent-test:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agent-test
+    hostname: e2e-agent
+    environment:
+      ENROLL_TOKEN: ${ENROLL_TOKEN:-}
+    volumes:
+      - agent-test-config:/etc/fleetwatch
+    depends_on:
+      - hub
+
+  # A second test agent that reports a stand-in Proxmox node.
+  agent-pve-test:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agent-test
+    hostname: pve-test
+    environment:
+      ENROLL_TOKEN: ${ENROLL_TOKEN:-}
+      FAKE_PVE: "1"
+    volumes:
+      - agent-pve-test-config:/etc/fleetwatch
+    depends_on:
+      - hub
+
+  # A stand-in webhook target: it prints what the Hub sends. In Settings use
+  # http://hook-test:9000/hook
+  hook-test:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agent-test
+    entrypoint: ["/usr/local/bin/hookrecv"]
+
+volumes:
+  agent-test-config:
+  agent-pve-test-config:

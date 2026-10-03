@@ -1,0 +1,18 @@
+# Build the Hub image from this checkout instead of pulling it. Always together
+# with the main file:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up -d --build
+# Signs the agent files during the build. Make the key once with
+# `make release-key`. To publish for others, use `make image` instead.
+services:
+  hub:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.hub
+      args:
+        VERSION: ${FLEETWATCH_VERSION:-0.1.0}
+      secrets:
+        - signing_key
+
+secrets:
+  signing_key:
+    file: ../release/signing-key.pem

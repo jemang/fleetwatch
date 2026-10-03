@@ -11,34 +11,29 @@ FleetWatch is a self-hosted monitor for Linux servers and Proxmox nodes. A singl
 
 ## Start the Hub
 
-Requirements: Docker with Compose.
+Requirements: Docker with Compose. The Hub is published as `ghcr.io/jemang/fleetwatch-hub` for amd64 and arm64; nothing is built on your machine.
 
 ```bash
-make release-key                       # once: makes the key that signs the agent files
-cp deploy/.env.example deploy/.env     # then edit: password and public URL
-docker compose -f deploy/docker-compose.yml up -d --build
+mkdir fleetwatch && cd fleetwatch
+curl -fsSLO https://raw.githubusercontent.com/jemang/fleetwatch/main/deploy/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/jemang/fleetwatch/main/deploy/.env.example -o .env
+nano .env                              # password and public URL
+docker compose up -d
 ```
 
-Open the public URL and log in with the password. Data lives in the Docker volume `fleetwatch_hub-data` (mounted at `/data`). After a change to `deploy/.env`, run the same `up -d` line again; the container is recreated with the new values and the data stays. The variables can also be set in the shell instead of the file.
+Open the public URL and log in with the password. Data lives in the Docker volume `fleetwatch_hub-data` (mounted at `/data`). After a change to `.env`, run `docker compose up -d` again; the container is recreated with the new values and the data stays. The variables can also be set in the shell instead of the file.
 
 | Variable | Meaning | Default |
 |---|---|---|
 | `FLEETWATCH_ADMIN_PASSWORD` | dashboard password (required) | – |
 | `FLEETWATCH_PUBLIC_URL` | address of the Hub as agents see it (required for real use) | `http://localhost:8080` |
 | `FLEETWATCH_PORT` | port on the Docker host | `8080` |
-| `FLEETWATCH_VERSION` | version stamped into the Hub and the agent files | `0.1.0` |
+| `FLEETWATCH_VERSION` | image tag to run: a release number, or `latest` | `latest` |
 | `FLEETWATCH_TLS_CERT`, `FLEETWATCH_TLS_KEY` | serve HTTPS directly (otherwise put a reverse proxy in front) | – |
 | `FLEETWATCH_TRUSTED_PROXIES` | addresses or networks of a reverse proxy, comma-separated; `X-Forwarded-For` is believed only from them | – |
 | `FLEETWATCH_RETENTION_RAW`, `_1M`, `_5M`, `_1H` | how long history is kept, as hours (for example `168h`) | 24 hours, 7 days, 30 days, 365 days |
 
 Use HTTPS for anything outside a trusted network: over plain HTTP the agent credential travels unencrypted.
-
-### The signing key
-
-`make release-key` writes the private key to `release/signing-key.pem` and the public key to `internal/release/pubkey/pubkey.pem`. The image build signs the agent files with the private key (passed as a build secret; it is stored in no image). The public key is compiled into the Hub and the agent.
-
-- Keep `release/signing-key.pem` secret and keep a copy. It is in `.gitignore`.
-- If it is lost, make a new pair: installed agents then refuse `upgrade` until they are installed again.
 
 ## Add a server
 
@@ -101,7 +96,7 @@ journalctl -u fleetwatch-agent    # the agent's log
 
 In **Settings → Passkeys** the administrator can add a passkey (Touch ID, Windows Hello, a hardware key, a password manager) and then log in with **Use passkey** on the login page. The password stays as the second way in. Browsers allow passkeys only over HTTPS with a host name (`localhost` over plain HTTP works for development), so `FLEETWATCH_PUBLIC_URL` must be an `https://` address with a name; otherwise the section explains why passkeys are off.
 
-![Login page with password and passkey](docs/img/login.png)
+![Login page](docs/img/login.png)
 
 ## In the dashboard
 
@@ -116,7 +111,7 @@ In **Settings → Passkeys** the administrator can add a passkey (Touch ID, Wind
 
 ## Upgrade
 
-Hub: build and start again with a higher `FLEETWATCH_VERSION`; the data volume is kept. Agents: run `sudo fleetwatch-agent upgrade` on each server.
+Hub: `docker compose pull && docker compose up -d` (with `FLEETWATCH_VERSION=latest`), or set a higher release number first; the data volume is kept. Agents: run `sudo fleetwatch-agent upgrade` on each server; the Hub hands out the agent that matches its own version.
 
 ## Development
 
@@ -129,10 +124,29 @@ make vet
 deploy/e2e.sh                  # end-to-end check with a test agent container
 ```
 
-Simulation servers (two test agents, one a stand-in Proxmox node, and a webhook receiver) are in `deploy/docker-compose.test.yml`, kept apart from the Hub so they are easy to drop:
+### Building the Hub image
+
+`deploy/docker-compose.yml` pulls the published image. To run the Hub from this checkout, add `deploy/docker-compose.build.yml` as a second `-f` file; it builds the image and signs the agent files:
 
 ```bash
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml up -d   # Hub + simulation
+make release-key                       # once: makes the key that signs the agent files
+cp deploy/.env.example deploy/.env     # then edit
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up -d --build
+```
+
+`make release-key` writes the private key to `release/signing-key.pem` and the public key to `internal/release/pubkey/pubkey.pem`. The build signs the agent files with the private key (passed as a build secret; it is stored in no image). The public key is compiled into the Hub and the agent, so agents installed from a Hub only accept upgrades signed with the same key.
+
+- Keep `release/signing-key.pem` secret and keep a copy. It is in `.gitignore`.
+- If it is lost, make a new pair: installed agents then refuse `upgrade` until they are installed again.
+
+Publishing: `make image` builds for amd64 and arm64 and pushes `ghcr.io/jemang/fleetwatch-hub:<version>` and `:latest` (version from `FLEETWATCH_VERSION` in `deploy/.env`, or `make image VERSION=0.2.0`). It needs `docker login ghcr.io` and a buildx builder with the `docker-container` driver. `make image-local` builds the same image for this machine only.
+
+### Simulation servers
+
+Two test agents, one a stand-in Proxmox node, and a webhook receiver are in `deploy/docker-compose.test.yml`, kept apart from the Hub so they are easy to drop:
+
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml -f deploy/docker-compose.test.yml up -d   # Hub + simulation
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml stop agent-test agent-pve-test hook-test
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml rm agent-test agent-pve-test hook-test   # drop them
 ```

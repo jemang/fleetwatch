@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# FleetWatch agent installer, made by the Hub at {{.HubURL}}
+# for one enrollment token. It works once. Agent version: {{.Version}}
+#
+# It downloads the agent, checks its signature and checksum, installs it as
+# the service "fleetwatch-agent" (user "fleetwatch") and registers this server.
+# Optional settings, as environment variables:
+#   FLEETWATCH_SERVICES=nginx,docker        systemd units to watch
+#   FLEETWATCH_PVE_TOKEN_ID, FLEETWATCH_PVE_TOKEN_SECRET   read-only Proxmox API token
+# Remove everything again with: sudo fleetwatch-agent uninstall
+set -euo pipefail
+
+HUB={{.HubQuoted}}
+TOKEN='{{.Token}}'
+ALLOW_HTTP={{if .AllowHTTP}}1{{else}}0{{end}}
+BIN=/usr/local/bin/fleetwatch-agent
+CONF_DIR=/etc/fleetwatch
+UNIT=/etc/systemd/system/fleetwatch-agent.service
+SVC_USER=fleetwatch
+# Global, because the clean-up runs after main has returned.
+tmp=""
+
+ok() { printf '\342\234\223 %s\n' "$1"; }
+fail() { printf '\342\234\227 %s\n' "$1" >&2; exit 1; }
+
+main() {
+  echo "Installing FleetWatch agent..."
+  echo
+  [ "$(id -u)" = 0 ] || fail "Run this as root, for example with sudo."
+  [ "$(uname -s)" = Linux ] || fail "Only Linux is supported."
+  [ -d /run/systemd/system ] || fail "systemd is required and was not found."
+  local tool
+  for tool in curl openssl sha256sum install useradd systemctl; do
+    command -v "$tool" >/dev/null 2>&1 || fail "The program '$tool' is required and was not found."
+  done
+
+  local arch distro=Linux
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) fail "Processor type $(uname -m) is not supported. amd64 and arm64 are." ;;
+  esac
+  if [ -r /etc/os-release ]; then
+    distro="$(. /etc/os-release; echo "${PRETTY_NAME:-${NAME:-Linux}}")"
+  fi
+  ok "Detected $distro / $arch"
+
+  local file name
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  file="fleetwatch-agent-linux-$arch"
+  for name in "$file" SHA256SUMS SHA256SUMS.sig; do
+    curl -fsSL --retry 2 -o "$tmp/$name" "$HUB/dl/$name" || fail "Download of $name failed."
+  done
+  cat > "$tmp/release.pub" <<'PUBLIC_KEY'
+{{.PublicKey}}PUBLIC_KEY
+  openssl dgst -sha256 -verify "$tmp/release.pub" -signature "$tmp/SHA256SUMS.sig" "$tmp/SHA256SUMS" >/dev/null 2>&1 \
+    || fail "The signature of the download is not valid. Nothing was installed."
+  (cd "$tmp" && grep "  $file\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1) \
+    || fail "The checksum of the download does not match. Nothing was installed."
+  ok "Download verified"
+
+  install -m 0755 "$tmp/$file" "$BIN"
+  ok "Agent installed (version $("$BIN" version))"
+
+  if ! id "$SVC_USER" >/dev/null 2>&1; then
+    useradd --system --no-create-home --home-dir /nonexistent --shell "$(command -v nologin || echo /usr/sbin/nologin)" "$SVC_USER"
+  fi
+
+  local args=(enroll --hub "$HUB" --token "$TOKEN") pve_hint=0 out
+  if [ "$ALLOW_HTTP" = 1 ]; then args+=(--allow-insecure-http); fi
+  if [ -d /etc/pve ]; then
+    if [ -n "${FLEETWATCH_PVE_TOKEN_ID:-}" ] && [ -n "${FLEETWATCH_PVE_TOKEN_SECRET:-}" ]; then
+      # The service user cannot read /etc/pve, so it gets its own copy of the certificate.
+      mkdir -p "$CONF_DIR"
+      cp /etc/pve/pve-root-ca.pem "$CONF_DIR/pve-root-ca.pem"
+      args+=(--pve-ca-file "$CONF_DIR/pve-root-ca.pem")
+    else
+      pve_hint=1
+    fi
+  fi
+  out="$("$BIN" "${args[@]}" 2>&1)" || { echo "$out" >&2; fail "Registration with $HUB failed."; }
+  chown -R "$SVC_USER:$SVC_USER" "$CONF_DIR"
+  chmod 0700 "$CONF_DIR"
+  ok "Server registered"
+
+  cat > "$UNIT" <<'UNIT_FILE'
+{{.Unit}}UNIT_FILE
+  systemctl daemon-reload
+  systemctl enable fleetwatch-agent.service >/dev/null 2>&1 || fail "The service could not be enabled."
+  systemctl restart fleetwatch-agent.service || fail "The service did not start. See: journalctl -u fleetwatch-agent"
+  ok "systemd service created"
+
+  local status="" i
+  for i in $(seq 20); do
+    if status="$("$BIN" status 2>&1)"; then
+      if [ "$ALLOW_HTTP" = 1 ]; then
+        ok "Connected to $HUB (plain HTTP, not encrypted)"
+      else
+        ok "Connected securely to $HUB"
+      fi
+      echo
+      echo "$status"
+      if [ "$pve_hint" = 1 ]; then
+        echo
+        echo "This is a Proxmox node. To report its VMs, containers and storage, create a"
+        echo "read-only API token and add it to $CONF_DIR/agent.yaml (see README):"
+        echo "  pveum user add fleetwatch@pve"
+        echo "  pveum acl modify / --users fleetwatch@pve --roles PVEAuditor"
+        echo "  pveum user token add fleetwatch@pve agent --privsep 0"
+      fi
+      return 0
+    fi
+    sleep 2
+  done
+  echo "$status" >&2
+  fail "The service is installed, but the Hub has not received a report yet. See: journalctl -u fleetwatch-agent"
+}
+
+main "$@"

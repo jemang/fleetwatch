@@ -1,0 +1,100 @@
+{{define "nav"}}<a href="/" data-nav="hosts">Hosts<span class="count">{{.Hosts}}</span></a>
+<a href="/alerts" data-nav="alerts">Alerts<span class="count{{if .Firing}} bad{{end}}">{{.Firing}}</span></a>
+<a href="/settings" data-nav="settings">Settings</a>{{end}}
+
+{{define "side"}}<nav id="nav" class="side" aria-label="Main" sse-swap="nav" hx-swap="innerHTML">{{template "nav" .}}</nav>{{end}}
+
+{{define "subtop"}}<header class="top">
+  <h1><a href="/">{{template "brand"}}</a><span class="crumb">{{.}}</span></h1>
+  <div class="actions">
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>{{end}}
+
+{{define "scripts"}}<script src="/static/htmx.min.js"></script>
+<script src="/static/sse.js"></script>
+<script src="/static/app.js"></script>{{end}}
+
+{{define "alertlist"}}{{if .Alerts}}<table class="hosts plain alerts">
+  <thead><tr><th>State</th><th>Host</th><th>Alert</th><th>Since</th><th>Ended</th><th aria-label="Action"></th></tr></thead>
+  <tbody>{{range .Alerts}}<tr><td><span class="astate" data-state="{{.State}}"><span class="dot"></span>{{.State}}</span></td><td class="mono"><a href="/hosts/{{.HostID}}">{{.Host}}</a></td><td class="what"><b>{{.Title}}</b>{{if .Detail}}<span>{{.Detail}}</span>{{end}}</td><td class="when" data-time="{{.Since}}">{{.SinceText}}</td><td class="when"{{if .Ended}} data-time="{{.Ended}}"{{end}}>{{if .Ended}}{{.EndedText}}{{else}}–{{end}}</td><td class="act">{{if eq .State "firing"}}<form method="post" action="/alerts/{{.ID}}/dismiss"><button>Dismiss</button></form>{{end}}</td></tr>{{end}}</tbody>
+</table>{{else}}<p class="empty">No alerts. FleetWatch lists a host here when it stops reporting, runs out of CPU, memory or disk, or when a service, guest or storage fails.</p>{{end}}{{end}}
+
+{{define "alerts"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Alerts"}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+{{template "subtop" "Alerts"}}
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <div id="alert-list" hx-get="/alerts" hx-trigger="sse:nav" hx-swap="innerHTML">{{template "alertlist" .}}</div>
+  <p class="hint">Dismiss hides a firing alert and sends no further message for it. It comes back only if the problem ends and then happens again.</p>
+</main>
+{{template "foot" .}}
+{{template "scripts"}}
+</body>
+</html>{{end}}
+
+{{define "testresult"}}{{range .}}<span class="{{if .Error}}bad{{else}}ok{{end}}">{{.Name}}: {{if .Error}}failed ({{.Error}}){{else}}delivered{{end}}</span>{{else}}<span class="bad">No notification target is configured. Enter a webhook URL or the Telegram values, then save.</span>{{end}}{{end}}
+
+{{define "settings"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Settings"}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+{{template "subtop" "Settings"}}
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  {{if .Saved}}<p class="saved" role="status">Settings saved.</p>{{end}}
+  {{range .Errors}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <form class="settings" method="post" action="/settings">
+    <fieldset>
+      <legend>Notifications</legend>
+      <p class="hint">FleetWatch sends one message when an alert starts and one when it ends.</p>
+      <label for="webhook_url">Webhook URL</label>
+      <input id="webhook_url" name="webhook_url" value="" type="url" placeholder="https://example.com/hook" autocomplete="off" spellcheck="false">
+      {{if .Form.WebhookHost}}<p class="stored"><span class="dot"></span>Stored: {{.Form.WebhookHost}}/… — leave the field empty to keep it<button name="clear_webhook_url" value="1">Remove</button></p>{{end}}
+      <label for="telegram_token">Telegram bot token</label>
+      <input id="telegram_token" name="telegram_token" type="password" placeholder="123456:ABC-DEF" autocomplete="off">
+      {{if .Form.TokenStored}}<p class="stored"><span class="dot"></span>A token is stored — leave the field empty to keep it<button name="clear_telegram_token" value="1">Remove</button></p>{{end}}
+      <label for="telegram_chat_id">Telegram chat ID</label>
+      <input id="telegram_chat_id" name="telegram_chat_id" value="{{.Form.ChatID}}" placeholder="-1001234567890" autocomplete="off" spellcheck="false">
+    </fieldset>
+    <fieldset>
+      <legend>Waiting times</legend>
+      <p class="hint">A problem must last this long before its alert fires. Limits are fixed: CPU 90%, memory 90%, disk 85%.</p>
+      <div class="waits">
+        <label for="offline_after_s">Host offline<span>seconds without a report</span></label>
+        <input id="offline_after_s" name="offline_after_s" value="{{.Form.OfflineAfter}}" inputmode="numeric" required>
+        <label for="cpu_for_min">CPU high<span>minutes</span></label>
+        <input id="cpu_for_min" name="cpu_for_min" value="{{.Form.CPUFor}}" inputmode="numeric" required>
+        <label for="ram_for_min">Memory high<span>minutes</span></label>
+        <input id="ram_for_min" name="ram_for_min" value="{{.Form.RAMFor}}" inputmode="numeric" required>
+        <label for="disk_for_min">Disk full<span>minutes</span></label>
+        <input id="disk_for_min" name="disk_for_min" value="{{.Form.DiskFor}}" inputmode="numeric" required>
+      </div>
+    </fieldset>
+    <div class="formfoot">
+      <button class="primary">Save settings</button>
+      <button type="button" hx-post="/settings/test" hx-target="#test-result" hx-swap="innerHTML" hx-disabled-elt="this">Send test message</button>
+      <span id="test-result" class="testresult" role="status"></span>
+    </div>
+    <p class="hint">The test uses the saved settings. Save first.</p>
+  </form>
+  <h2>Passkeys</h2>
+  {{if .PasskeysOn}}<p class="hint">A passkey (Touch ID, Windows Hello, a hardware key or a password manager) logs you in without the password. The password stays as the second way in.</p>
+  {{if .Passkeys}}<table class="hosts plain passkeys">
+    <thead><tr><th>Name</th><th>Added</th><th>Last used</th><th aria-label="Action"></th></tr></thead>
+    <tbody>{{range .Passkeys}}<tr><td class="mono">{{.Name}}</td><td class="when" data-time="{{.Created}}">{{.CreatedText}}</td><td class="when"{{if .Used}} data-time="{{.Used}}"{{end}}>{{if .Used}}{{.UsedText}}{{else}}never{{end}}</td><td class="act"><form method="post" action="/passkeys/{{.ID}}/delete"><button>Remove</button></form></td></tr>{{end}}</tbody>
+  </table>{{end}}
+  <form id="passkey-add" class="passkey-add" onsubmit="return false">
+    <label for="passkey-name">New passkey</label>
+    <div class="formfoot"><input id="passkey-name" placeholder="Name, for example MacBook" maxlength="64" autocomplete="off"><button type="button" id="passkey-register" class="primary">Add passkey</button><span id="passkey-msg" class="testresult" role="status"></span></div>
+  </form>
+  <script src="/static/passkey.js"></script>{{else}}<p class="hint">Passkeys are off: browsers allow them only when the Hub is reached over HTTPS with a host name, and this Hub's address is {{.PublicURL}}. Set FLEETWATCH_PUBLIC_URL to an https:// address with a name, start the Hub again, and this section turns on.</p>{{end}}
+</main>
+{{template "foot" .}}
+{{template "scripts"}}
+</body>
+</html>{{end}}

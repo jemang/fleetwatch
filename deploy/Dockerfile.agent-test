@@ -1,0 +1,15 @@
+FROM golang:1.27.1-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/fleetwatch-agent ./cmd/fleetwatch-agent \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/fakepve ./deploy/fakepve \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/hookrecv ./deploy/hookrecv
+
+FROM debian:bookworm-slim
+COPY --from=build /out/fleetwatch-agent /usr/local/bin/fleetwatch-agent
+COPY --from=build /out/fakepve /usr/local/bin/fakepve
+COPY --from=build /out/hookrecv /usr/local/bin/hookrecv
+COPY deploy/agent-test-entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]

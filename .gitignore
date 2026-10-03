@@ -6,3 +6,5 @@ deploy/.env
 handoff.md
 .DS_Store
 .doc
+.claude
+PVE_Watch_PRD.md

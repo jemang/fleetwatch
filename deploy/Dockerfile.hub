@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.27.1-bookworm AS build
+ARG VERSION=0.1.0
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ENV CGO_ENABLED=0
+# The Hub hands out the agent for both processor types.
+RUN LDFLAGS="-s -w -X fleetwatch/internal/version.Version=${VERSION}" \
+ && go build -trimpath -ldflags="$LDFLAGS" -o /out/fleetwatch-hub ./cmd/fleetwatch-hub \
+ && GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o /out/dl/fleetwatch-agent-linux-amd64 ./cmd/fleetwatch-agent \
+ && GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o /out/dl/fleetwatch-agent-linux-arm64 ./cmd/fleetwatch-agent \
+ && printf '%s\n' "$VERSION" > /out/dl/VERSION \
+ && mkdir /out/data
+# The private key is mounted for this step only and is stored in no layer.
+RUN --mount=type=secret,id=signing_key go run ./cmd/fleetwatch-release sign --key /run/secrets/signing_key --dir /out/dl
+
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG VERSION
+# ghcr.io links the package to the repository through this label.
+LABEL org.opencontainers.image.source="https://github.com/jemang/fleetwatch" \
+      org.opencontainers.image.description="FleetWatch Hub: self-hosted monitor for Linux servers and Proxmox nodes" \
+      org.opencontainers.image.version="${VERSION}"
+COPY --from=build /out/fleetwatch-hub /usr/local/bin/fleetwatch-hub
+COPY --from=build /out/dl /usr/share/fleetwatch/dl
+# A named volume copies ownership from this directory on first use.
+COPY --from=build --chown=65532:65532 /out/data /data
+VOLUME /data
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/fleetwatch-hub"]

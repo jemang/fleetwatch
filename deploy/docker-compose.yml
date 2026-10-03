@@ -1,0 +1,29 @@
+name: fleetwatch
+
+# The Hub alone, from the published image. This file works on its own: put it
+# in a folder with a .env (copy .env.example) and run `docker compose up -d`.
+# To build the image from source instead, add docker-compose.build.yml as a
+# second -f file. Simulation servers for development live in
+# docker-compose.test.yml.
+services:
+  hub:
+    image: ghcr.io/jemang/fleetwatch-hub:${FLEETWATCH_VERSION:-latest}
+    # Values come from .env next to this file or the shell.
+    environment:
+      FLEETWATCH_ADMIN_PASSWORD: ${FLEETWATCH_ADMIN_PASSWORD:?set FLEETWATCH_ADMIN_PASSWORD in .env}
+      FLEETWATCH_PUBLIC_URL: ${FLEETWATCH_PUBLIC_URL:-http://localhost:8080}
+      FLEETWATCH_TRUSTED_PROXIES: ${FLEETWATCH_TRUSTED_PROXIES:-}
+      FLEETWATCH_TLS_CERT: ${FLEETWATCH_TLS_CERT:-}
+      FLEETWATCH_TLS_KEY: ${FLEETWATCH_TLS_KEY:-}
+      FLEETWATCH_RETENTION_RAW: ${FLEETWATCH_RETENTION_RAW:-}
+      FLEETWATCH_RETENTION_1M: ${FLEETWATCH_RETENTION_1M:-}
+      FLEETWATCH_RETENTION_5M: ${FLEETWATCH_RETENTION_5M:-}
+      FLEETWATCH_RETENTION_1H: ${FLEETWATCH_RETENTION_1H:-}
+    ports:
+      - "${FLEETWATCH_PORT:-8080}:8080"
+    volumes:
+      - hub-data:/data
+    restart: unless-stopped
+
+volumes:
+  hub-data:

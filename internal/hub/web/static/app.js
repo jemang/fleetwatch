@@ -1,0 +1,192 @@
+(function () {
+  // The Hub clock is the reference for "last report" and the footer clock;
+  // the browser clock may differ.
+  var skew = Number(document.body.dataset.now || 0) - Math.floor(Date.now() / 1000);
+  var tbody = document.getElementById('host-rows');
+  var search = document.getElementById('search');
+  var nomatch = document.getElementById('nomatch');
+  var clock = document.getElementById('clock');
+  var dialog = document.getElementById('enroll-dialog');
+  var conn = document.getElementById('conn');
+
+  function unit(n, word) { return n + ' ' + word + (n === 1 ? '' : 's') + ' ago'; }
+  function ago(s) {
+    if (s < 60) return unit(s, 'second');
+    if (s < 3600) return unit(Math.floor(s / 60), 'minute');
+    if (s < 86400) return unit(Math.floor(s / 3600), 'hour');
+    return unit(Math.floor(s / 86400), 'day');
+  }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function hm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function tick() {
+    var now = Math.floor(Date.now() / 1000) + skew;
+    document.querySelectorAll('[data-ts]').forEach(function (el) {
+      var ts = Number(el.dataset.ts);
+      el.textContent = ts ? ago(Math.max(0, now - ts)) : 'never';
+    });
+    if (clock) {
+      var d = new Date(now * 1000);
+      clock.textContent = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm(d) + ':' + pad(d.getSeconds());
+    }
+  }
+
+  // Times of alerts are printed in the viewer's time zone.
+  function stamp() {
+    document.querySelectorAll('[data-time]').forEach(function (el) {
+      var d = new Date(Number(el.dataset.time) * 1000);
+      el.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + hm(d);
+      el.title = d.toLocaleString();
+    });
+  }
+  // The menu is replaced by live updates, so the current page is marked again.
+  function markNav() {
+    var here = document.querySelector('.side [data-nav="' + document.body.dataset.page + '"]');
+    if (here) here.setAttribute('aria-current', 'page');
+  }
+
+  // Host list: sorting. Column 0 ascending is the order the server sends.
+  var sortCol = 0, sortDir = 1;
+  function applySort() {
+    if (!tbody) return;
+    var head = document.querySelectorAll('.hosts thead th')[sortCol];
+    var numeric = head.querySelector('.sort').dataset.type === 'num';
+    var rows = Array.prototype.slice.call(tbody.rows);
+    var sorted = rows.slice().sort(function (a, b) {
+      var x = a.cells[sortCol].dataset.v || '', y = b.cells[sortCol].dataset.v || '';
+      // Rows without a value go last in both directions.
+      if (x === '' || y === '') return x === y ? 0 : (x === '' ? 1 : -1);
+      var c = numeric ? Number(x) - Number(y) : x.localeCompare(y, undefined, { sensitivity: 'base', numeric: true });
+      return c * sortDir;
+    });
+    var changed = sorted.some(function (r, i) { return r !== rows[i]; });
+    if (changed) sorted.forEach(function (r) { tbody.appendChild(r); });
+  }
+  if (tbody) {
+    document.querySelector('.hosts thead').addEventListener('click', function (e) {
+      var btn = e.target.closest('.sort');
+      if (!btn) return;
+      var th = btn.closest('th');
+      sortDir = th.cellIndex === sortCol ? -sortDir : 1;
+      sortCol = th.cellIndex;
+      document.querySelectorAll('.hosts thead th').forEach(function (h) { h.removeAttribute('aria-sort'); });
+      th.setAttribute('aria-sort', sortDir === 1 ? 'ascending' : 'descending');
+      applySort();
+    });
+  }
+
+  // Host list: search filters by host name and by any of the host's addresses.
+  function applyFilter() {
+    if (!tbody || !search) return;
+    var q = search.value.trim().toLowerCase();
+    var rows = Array.prototype.slice.call(tbody.rows), shown = 0;
+    rows.forEach(function (r) {
+      var text = (r.cells[0].textContent + ' ' + r.cells[1].textContent + ' ' + r.cells[1].title).toLowerCase();
+      r.hidden = q !== '' && text.indexOf(q) === -1;
+      if (!r.hidden) shown++;
+    });
+    nomatch.hidden = !(q !== '' && rows.length > 0 && shown === 0);
+  }
+  if (search) {
+    search.addEventListener('input', applyFilter);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === '/' && document.activeElement !== search && !(dialog && dialog.open)) {
+        e.preventDefault();
+        search.focus();
+      } else if (e.key === 'Escape' && document.activeElement === search) {
+        search.value = '';
+        applyFilter();
+        search.blur();
+      }
+    });
+  }
+
+  // Charts: the time axis is printed in the viewer's time zone.
+  function axisLabel(ts, fmt) {
+    var d = new Date(ts * 1000);
+    if (fmt === 'md') return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    if (fmt === 'dhm') return d.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + hm(d);
+    return hm(d);
+  }
+  function labelCharts() {
+    document.querySelectorAll('svg.chart').forEach(function (svg) {
+      svg.querySelectorAll('.xlab text').forEach(function (t) { t.textContent = axisLabel(Number(t.dataset.t), svg.dataset.fmt); });
+    });
+  }
+  // Charts: crosshair and value under the pointer. Geometry matches chart.go.
+  var VW = 420, L = 36, R = 412, T = 12, B = 128;
+  function hover(e) {
+    var svg = e.target.closest ? e.target.closest('svg.chart') : null;
+    document.querySelectorAll('svg.chart.on').forEach(function (s) { if (s !== svg) leave(s); });
+    if (!svg) return;
+    var pts = svg._pts || (svg._pts = JSON.parse(svg.dataset.points));
+    if (!pts.length) return;
+    var box = svg.getBoundingClientRect();
+    var from = Number(svg.dataset.from), to = Number(svg.dataset.to);
+    var vx = (e.clientX - box.left) / box.width * VW;
+    var ts = from + (vx - L) / (R - L) * (to - from);
+    var best = pts[0];
+    for (var i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - ts) < Math.abs(best[0] - ts)) best = pts[i];
+    var px = L + (best[0] - from) / (to - from) * (R - L), py = B - Math.min(Math.max(best[1], 0), 100) / 100 * (B - T);
+    var cross = svg.querySelector('.cross'), dot = svg.querySelector('.dot'), tip = svg.parentNode.querySelector('.tip');
+    cross.setAttribute('x1', px); cross.setAttribute('x2', px);
+    dot.setAttribute('cx', px); dot.setAttribute('cy', py);
+    svg.classList.add('on');
+    var d = new Date(best[0] * 1000);
+    tip.textContent = best[1] + '%  ·  ' + (svg.dataset.fmt === 'hm' ? hm(d) : axisLabel(best[0], 'md') + ' ' + hm(d));
+    tip.classList.add('on');
+    // SVG elements have no offsetLeft; measure against the figure instead.
+    var fig = svg.parentNode.getBoundingClientRect();
+    var left = box.left - fig.left + px / VW * box.width;
+    tip.style.left = Math.min(Math.max(left, 60), fig.width - 60) + 'px';
+  }
+  function leave(svg) {
+    svg.classList.remove('on');
+    var tip = svg.parentNode.querySelector('.tip');
+    if (tip) tip.classList.remove('on');
+  }
+  document.addEventListener('pointermove', hover);
+  document.addEventListener('pointerdown', hover);
+
+  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); labelCharts(); }
+  setInterval(tick, 1000);
+  refresh();
+  document.body.addEventListener('htmx:sseMessage', refresh);
+  // The extension only raises events it swaps, so the removal of a server
+  // is read from the stream itself: its row goes, and its own page leaves.
+  document.body.addEventListener('htmx:sseOpen', function (e) {
+    var source = e.detail && e.detail.source;
+    if (!source || source._removalHooked) return;
+    source._removalHooked = true;
+    source.addEventListener('host-removed', function (ev) {
+      var row = document.getElementById('host-' + ev.data);
+      if (row) row.remove();
+      if (document.body.dataset.host === ev.data) location.href = '/';
+      refresh();
+    });
+  });
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (dialog && e.target.id === 'enroll-body') dialog.showModal();
+    refresh();
+  });
+
+  if (conn) {
+    document.body.addEventListener('htmx:sseError', function () { conn.hidden = false; });
+    document.body.addEventListener('htmx:sseOpen', function () { conn.hidden = true; });
+  }
+
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    var out = document.getElementById('copy-result');
+    function fail() {
+      out.textContent = 'Copy failed. Select the command and copy it by hand.';
+      out.className = 'bad';
+    }
+    // navigator.clipboard exists only on https:// and localhost.
+    if (!navigator.clipboard) { fail(); return; }
+    navigator.clipboard.writeText(document.querySelector(btn.dataset.copy).textContent).then(function () {
+      out.textContent = 'Copied.';
+      out.className = 'ok';
+    }, fail);
+  });
+})();

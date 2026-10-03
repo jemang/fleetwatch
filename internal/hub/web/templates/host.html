@@ -1,0 +1,107 @@
+{{define "now"}}<section class="statusbar">
+  <span class="status" data-status="{{.Row.Status}}"><span class="dot"></span>{{.Row.StatusLabel}}</span>
+  <span>Last report <b class="seen" data-ts="{{.Row.LastSeenUnix}}"></b></span>
+  <span>Uptime <b>{{.Row.Uptime}}</b></span>
+  <span>IP <b title="{{.Row.IPTitle}}">{{.Row.IP}}</b></span>
+  <span>Agent <b>v{{.AgentVersion}}</b></span>
+</section>
+<section class="tiles four">
+  <div class="tile{{if .Row.CPU.Warn}} warn{{end}}"><div class="label">CPU</div><div class="value">{{if .Row.CPU.Known}}{{.Row.CPU.Pct}}%{{else}}–{{end}}</div>{{template "tilebar" .Row.CPU}}<div class="sub">{{.Cores}} cores</div></div>
+  <div class="tile{{if .Row.RAM.Warn}} warn{{end}}"><div class="label">Memory</div><div class="value">{{if .Row.RAM.Known}}{{.Row.RAM.Pct}}%{{else}}–{{end}}</div>{{template "tilebar" .Row.RAM}}<div class="sub">{{.Mem}}</div></div>
+  <div class="tile"><div class="label">Swap</div><div class="value">{{if .SwapUsage.Known}}{{.SwapUsage.Pct}}%{{else}}–{{end}}</div>{{template "tilebar" .SwapUsage}}<div class="sub">{{.Swap}}</div></div>
+  <div class="tile"><div class="label">Load (1, 5, 15 min)</div><div class="value load">{{.Load}}</div><div class="sub">{{.Cores}} cores</div></div>
+</section>
+{{if .Row.Disabled}}<p class="note">The Hub refuses reports from this agent, because it is disabled. The tables below show its last report.</p>{{else if .Stale}}<p class="note">This host is offline. The tables below show its last report.</p>{{end}}
+{{with .PVE}}<h2>Proxmox</h2>
+<p class="pveline">{{.Summary}}</p>
+{{if .Note}}<p class="note">{{.Note}}</p>{{else}}
+<h2>Guests</h2>
+<table class="hosts plain">
+  <thead><tr><th>ID</th><th>Guest</th><th>Type</th><th>Status</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Uptime</th><th>IP</th></tr></thead>
+  <tbody>{{range .Guests}}<tr><td>{{.ID}}</td><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td><span class="svc" data-s="{{.Status}}"><span class="dot"></span>{{.Status}}</span></td><td>{{.CPU}}</td><td>{{.Mem}}</td><td>{{.Disk}}</td><td>{{.Uptime}}</td><td>{{.IP}}</td></tr>{{else}}<tr><td colspan="9" class="none">No guests on this node.</td></tr>{{end}}</tbody>
+</table>
+<h2>Storage</h2>
+<table class="hosts plain">
+  <thead><tr><th>Storage</th><th>Type</th><th>State</th><th>Used / size</th><th>Usage</th></tr></thead>
+  <tbody>{{range .Storage}}<tr><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td><span class="svc" data-s="{{if .Active}}running{{else}}failed{{end}}"><span class="dot"></span>{{if .Active}}active{{else}}inactive{{end}}</span></td><td>{{.Size}}</td>{{template "usage" .Usage}}</tr>{{else}}<tr><td colspan="5" class="none">No storage reported.</td></tr>{{end}}</tbody>
+</table>
+{{end}}{{end}}{{if .Services}}<h2>Services</h2>
+<table class="hosts plain">
+  <thead><tr><th>Unit</th><th>Status</th></tr></thead>
+  <tbody>{{range .Services}}<tr><td class="mono">{{.Name}}</td><td><span class="svc" data-s="{{.Status}}"><span class="dot"></span>{{.Status}}</span></td></tr>{{end}}</tbody>
+</table>
+{{end}}<h2>Disks</h2>
+<table class="hosts plain">
+  <thead><tr><th>Mount</th><th>File system</th><th>Used / size</th><th>Usage</th></tr></thead>
+  <tbody>{{range .Disks}}<tr><td class="mono">{{.Mount}}</td><td>{{.FS}}</td><td>{{.Size}}</td>{{template "usage" .Usage}}</tr>{{else}}<tr><td colspan="4" class="none">No disks reported.</td></tr>{{end}}</tbody>
+</table>
+<h2>Network</h2>
+<table class="hosts plain">
+  <thead><tr><th>Interface</th><th>State</th><th>Addresses</th><th>Received</th><th>Sent</th></tr></thead>
+  <tbody>{{range .Nets}}<tr><td class="mono">{{.Name}}</td><td>{{.State}}</td><td>{{if .Addrs}}{{.Addrs}}{{else}}–{{end}}</td><td>{{.Rx}}</td><td>{{.Tx}}</td></tr>{{else}}<tr><td colspan="5" class="none">No interfaces reported.</td></tr>{{end}}</tbody>
+</table>{{end}}
+
+{{define "tilebar"}}<span class="bar{{if .Warn}} warn{{end}}">{{if .Known}}<span style="width: {{.Pct}}%"></span>{{end}}</span>{{end}}
+
+{{define "charts"}}<div hx-get="/hosts/{{.HostID}}/charts?range={{.Range}}" hx-trigger="every 60s" hx-target="#charts" hx-swap="innerHTML">
+<div class="ranges" role="group" aria-label="Time range">{{range .Tabs}}<button type="button" aria-pressed="{{if .Active}}true{{else}}false{{end}}" hx-get="/hosts/{{$.HostID}}/charts?range={{.Key}}" hx-target="#charts" hx-swap="innerHTML">{{.Label}}</button>{{end}}</div>
+<div class="chart-grid">{{range .Charts}}<figure class="chart-box">
+<figcaption><span class="t">{{.Title}}</span><span class="s">{{if .Empty}}No data in this period{{else}}now {{.Last}} · min {{.Min}} · avg {{.Avg}} · max {{.Max}}{{end}}</span></figcaption>
+{{if not .Empty}}<svg class="chart" viewBox="0 0 420 152" role="img" aria-label="{{.Title}} percent over time" data-points="{{.Points}}" data-from="{{$.From}}" data-to="{{$.To}}" data-fmt="{{$.Fmt}}">
+<g class="grid"><line x1="36" x2="412" y1="12" y2="12"/><line x1="36" x2="412" y1="70" y2="70"/><line x1="36" x2="412" y1="128" y2="128"/></g>
+<g class="ylab"><text x="31" y="16">100%</text><text x="31" y="74">50%</text><text x="31" y="132">0%</text></g>
+{{if .Limit}}<line class="limit" x1="36" x2="412" y1="{{.LimitY}}" y2="{{.LimitY}}"/><text class="limit-label" x="410" y="{{.LimitY}}" dy="-4">limit {{.Limit}}%</text>{{end}}
+<path class="area" d="{{.Area}}"/><path class="line" d="{{.Path}}"/>
+<g class="xlab">{{range .XTicks}}<text x="{{.X}}" y="146" data-t="{{.TS}}"></text>{{end}}</g>
+<line class="cross" y1="12" y2="128"/><circle class="dot" r="4"/>
+</svg><div class="tip" role="status"></div>{{end}}
+</figure>{{end}}</div></div>{{end}}
+
+{{define "foot"}}<footer class="foot">
+  <div class="prompt">fleetwatch@{{.PromptHost}}:~$<span class="cursor"></span></div>
+  <div class="statusline"><span>v{{.Version}}</span><span id="statusline" sse-swap="statusline" hx-swap="innerHTML">{{template "statusline" .Summary}}</span><span id="clock"></span></div>
+</footer>{{end}}
+
+{{define "host"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" .Detail.Row.Name}}</head>
+<body data-page="{{.Page}}" data-host="{{.Detail.Row.ID}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events?host={{.Detail.Row.ID}}">
+<header class="top">
+  <h1><a href="/">{{template "brand"}}</a><span class="crumb">{{.Detail.Row.Name}}</span></h1>
+  <div class="actions">
+    <a class="button" href="/">All hosts</a>
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <dl class="facts">
+    <div><dt>System</dt><dd>{{if .Detail.OS}}{{.Detail.OS}}{{else}}–{{end}}</dd></div>
+    <div><dt>Kernel</dt><dd>{{if .Detail.Kernel}}{{.Detail.Kernel}}{{else}}–{{end}}</dd></div>
+    <div><dt>Processor</dt><dd>{{if .Detail.CPUModel}}{{.Detail.CPUModel}}{{else}}–{{end}}</dd></div>
+    <div><dt>Memory</dt><dd>{{.Detail.MemTotal}}</dd></div>
+  </dl>
+  <div id="now" sse-swap="detail" hx-swap="innerHTML">{{template "now" .Detail}}</div>
+  <h2>History</h2>
+  <section id="charts" hx-get="/hosts/{{.Detail.Row.ID}}/charts?range=1h" hx-trigger="load" hx-swap="innerHTML"></section>
+  <h2>Agent</h2>
+  <section class="agentbar">
+    <p>{{if .Detail.Row.Disabled}}This agent is disabled: the Hub refuses its reports, and the host raises no alerts.{{else}}Replace the credential if it may have leaked. Disable the agent when the server is retired or must stop reporting.{{end}}</p>
+    <div class="actions">
+      <button type="button" hx-post="/hosts/{{.Detail.Row.ID}}/credential" hx-target="#enroll-body" hx-swap="innerHTML">Replace credential</button>
+      <form method="post" action="/hosts/{{.Detail.Row.ID}}/agent"><input type="hidden" name="disabled" value="{{if .Detail.Row.Disabled}}0{{else}}1{{end}}"><button>{{if .Detail.Row.Disabled}}Enable agent{{else}}Disable agent{{end}}</button></form>
+      <form method="post" action="/hosts/{{.Detail.Row.ID}}/delete" onsubmit="return confirm('Remove {{.Detail.Row.Name}} and all its history and alerts? The agent on the server keeps running until it is uninstalled there.')"><button class="danger">Remove server</button></form>
+    </div>
+  </section>
+</main>
+{{template "foot" .}}
+<dialog id="enroll-dialog">
+  <div id="enroll-body"></div>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+<script src="/static/htmx.min.js"></script>
+<script src="/static/sse.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>{{end}}
