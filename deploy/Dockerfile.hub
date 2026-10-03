@@ -1,14 +1,17 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.27.1-bookworm AS build
+# The build stage runs on the building machine's own platform and cross-compiles;
+# under emulation (multi-platform builds in CI) the Go toolchain would be 10x slower.
+FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm AS build
 ARG VERSION=0.1.0
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ENV CGO_ENABLED=0
-# The Hub hands out the agent for both processor types.
+# The Hub for the target platform; the agent for both processor types, because the Hub hands them out.
 RUN LDFLAGS="-s -w -X fleetwatch/internal/version.Version=${VERSION}" \
- && go build -trimpath -ldflags="$LDFLAGS" -o /out/fleetwatch-hub ./cmd/fleetwatch-hub \
+ && GOARCH=${TARGETARCH} go build -trimpath -ldflags="$LDFLAGS" -o /out/fleetwatch-hub ./cmd/fleetwatch-hub \
  && GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o /out/dl/fleetwatch-agent-linux-amd64 ./cmd/fleetwatch-agent \
  && GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o /out/dl/fleetwatch-agent-linux-arm64 ./cmd/fleetwatch-agent \
  && printf '%s\n' "$VERSION" > /out/dl/VERSION \
