@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -196,6 +197,7 @@ func (w *Web) passkeyRegisterFinish(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "The passkey could not be stored.", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("passkey %q registered", c.name)
 	rw.WriteHeader(http.StatusNoContent)
 }
 
@@ -212,6 +214,7 @@ func (w *Web) passkeyDelete(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("passkey %d removed", id)
 	http.Redirect(rw, r, "/settings", http.StatusSeeOther)
 }
 
@@ -276,6 +279,7 @@ func (w *Web) passkeyLoginFinish(rw http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		w.loginLimit.Fail(ip)
+		log.Printf("passkey login failed from %s: %v", ip, err)
 		http.Error(rw, "The passkey was not accepted: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -286,6 +290,7 @@ func (w *Web) passkeyLoginFinish(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("passkey login from %s with %q", ip, used.Name)
 	rw.WriteHeader(http.StatusNoContent)
 }
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -226,6 +227,7 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("settings saved")
 	http.Redirect(rw, r, "/settings?saved=1", http.StatusSeeOther)
 }
 
@@ -249,6 +251,9 @@ func (w *Web) settingsTest(rw http.ResponseWriter, r *http.Request) {
 		res := testResult{Name: t.Name}
 		if err := t.Send(ctx, alert.Message{Event: "test", Hub: w.promptHost, Since: now, At: now}); err != nil {
 			res.Error = err.Error()
+			log.Printf("test message to %s failed: %v", t.Name, err)
+		} else {
+			log.Printf("test message to %s delivered", t.Name)
 		}
 		results = append(results, res)
 	}

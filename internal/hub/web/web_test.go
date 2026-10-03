@@ -3,9 +3,11 @@ package web
 import (
 	"bufio"
 	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"fleetwatch/internal/hub/live"
+	"fleetwatch/internal/hub/logbuf"
 	"fleetwatch/internal/hub/store"
 	"fleetwatch/internal/protocol"
 )
@@ -25,6 +28,7 @@ type harness struct {
 	web   *Web
 	st    *store.Store
 	bus   *live.Bus
+	logs  *logbuf.Buffer
 	mux   *http.ServeMux
 	clock time.Time
 }
@@ -40,10 +44,14 @@ func newHarness(t *testing.T, publicURL string, secure bool) *harness {
 	h.st = st
 	hash, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.MinCost)
 	st.CreateAdmin(context.Background(), string(hash))
-	w, err := New(st, h.bus, func() time.Time { return h.clock }, publicURL, secure)
+	h.logs = logbuf.New(100, func() time.Time { return h.clock })
+	w, err := New(st, h.bus, h.logs, func() time.Time { return h.clock }, publicURL, secure)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Handlers log through the standard logger, as the Hub does.
+	log.SetOutput(h.logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	w.Routes(h.mux)
 	h.web = w
 	return h
@@ -487,7 +495,7 @@ func TestMenuOnEveryPageWithCounts(t *testing.T) {
 	h.st.CreateAlert(ctx, id, "cpu_high", "", "CPU 95%", h.clock, true)
 	h.st.CreateAlert(ctx, id, "ram_high", "", "memory 95%", h.clock, false)
 	c := h.login()
-	for path, page := range map[string]string{"/": "hosts", "/hosts/1": "hosts", "/alerts": "alerts", "/settings": "settings"} {
+	for path, page := range map[string]string{"/": "hosts", "/hosts/1": "hosts", "/alerts": "alerts", "/logs": "logs", "/settings": "settings"} {
 		w := h.do("GET", path, c, nil, false)
 		body := w.Body.String()
 		if w.Code != http.StatusOK {
@@ -497,13 +505,14 @@ func TestMenuOnEveryPageWithCounts(t *testing.T) {
 		for _, want := range []string{`data-page="` + page + `"`, `<nav id="nav" class="side"`, `sse-swap="nav"`,
 			`<a href="/" data-nav="hosts">Hosts<span class="count">2</span></a>`,
 			`<a href="/alerts" data-nav="alerts">Alerts<span class="count bad">1</span></a>`,
+			`<a href="/logs" data-nav="logs">Logs</a>`,
 			`<a href="/settings" data-nav="settings">Settings</a>`, `fleetwatch@hub.example.com:~$`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s is missing %q", path, want)
 			}
 		}
 	}
-	for _, path := range []string{"/alerts", "/settings"} {
+	for _, path := range []string{"/alerts", "/logs", "/logs.txt", "/settings"} {
 		if w := h.do("GET", path, nil, nil, false); w.Code != http.StatusSeeOther {
 			t.Errorf("%s without session: %d", path, w.Code)
 		}

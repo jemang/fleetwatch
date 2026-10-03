@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"fleetwatch/internal/hub/limit"
 	"fleetwatch/internal/hub/live"
+	"fleetwatch/internal/hub/logbuf"
 	"fleetwatch/internal/hub/store"
 	"fleetwatch/internal/version"
 )
@@ -32,6 +34,7 @@ const enrollTTL = 15 * time.Minute
 type Web struct {
 	st         *store.Store
 	bus        *live.Bus
+	logs       *logbuf.Buffer // the Hub's own recent log lines, for the Logs page
 	now        func() time.Time
 	publicURL  string
 	promptHost string
@@ -89,12 +92,12 @@ func (w *Web) sparks(r *http.Request) sparkSet {
 	return w.spark
 }
 
-func New(st *store.Store, bus *live.Bus, now func() time.Time, publicURL string, secure bool) (*Web, error) {
+func New(st *store.Store, bus *live.Bus, logs *logbuf.Buffer, now func() time.Time, publicURL string, secure bool) (*Web, error) {
 	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
-	return &Web{st: st, bus: bus, now: now, publicURL: strings.TrimRight(publicURL, "/"), promptHost: HubName(publicURL), secure: secure,
+	return &Web{st: st, bus: bus, logs: logs, now: now, publicURL: strings.TrimRight(publicURL, "/"), promptHost: HubName(publicURL), secure: secure,
 		loginLimit: limit.New(5, time.Minute, now), tmpl: tmpl, wa: passkeyRelyingParty(publicURL), ceremonies: map[string]ceremony{}}, nil
 }
 
@@ -119,6 +122,8 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /servers/enroll-token", w.requireSession(w.enrollToken))
 	mux.HandleFunc("GET /alerts", w.requireSession(w.alertsPage))
 	mux.HandleFunc("POST /alerts/{id}/dismiss", w.requireSession(w.dismissAlert))
+	mux.HandleFunc("GET /logs", w.requireSession(w.logsPage))
+	mux.HandleFunc("GET /logs.txt", w.requireSession(w.logsText))
 	mux.HandleFunc("GET /settings", w.requireSession(w.settingsPage))
 	mux.HandleFunc("POST /settings", w.requireSession(w.settingsSave))
 	mux.HandleFunc("POST /settings/test", w.requireSession(w.settingsTest))
@@ -232,6 +237,7 @@ func (w *Web) enrollToken(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("enrollment token created, valid %d minutes", int(enrollTTL.Minutes()))
 	w.render(rw, http.StatusOK, "enroll", enrollData{Command: w.installLine(token), Minutes: int(enrollTTL.Minutes()), Insecure: w.insecure(),
 		Manual: []string{"curl -fsSL " + w.publicURL + "/install/" + token + " -o fleetwatch-install.sh", "less fleetwatch-install.sh", "sudo bash fleetwatch-install.sh"}})
 }
@@ -253,6 +259,7 @@ func (w *Web) replaceCredential(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("credential replacement token created for %s, valid %d minutes", h.Name, int(enrollTTL.Minutes()))
 	cmd := "sudo fleetwatch-agent enroll --hub " + w.publicURL + " --token " + token
 	if w.insecure() {
 		cmd += " --allow-insecure-http"
@@ -266,9 +273,15 @@ func (w *Web) setAgentDisabled(rw http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := w.st.SetAgentDisabled(r.Context(), h.ID, r.PostFormValue("disabled") == "1"); err != nil {
+	disabled := r.PostFormValue("disabled") == "1"
+	if err := w.st.SetAgentDisabled(r.Context(), h.ID, disabled); err != nil {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if disabled {
+		log.Printf("agent on %s disabled", h.Name)
+	} else {
+		log.Printf("agent on %s enabled", h.Name)
 	}
 	w.bus.Publish(live.Event{Kind: live.HostUpdated, HostID: h.ID})
 	http.Redirect(rw, r, "/hosts/"+strconv.FormatInt(h.ID, 10), http.StatusSeeOther)
@@ -284,6 +297,7 @@ func (w *Web) deleteHost(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("server %s removed", h.Name)
 	w.bus.Publish(live.Event{Kind: live.HostRemoved, HostID: h.ID})
 	http.Redirect(rw, r, "/", http.StatusSeeOther)
 }
@@ -307,6 +321,13 @@ func (w *Web) events(rw http.ResponseWriter, r *http.Request) {
 	watch, _ := strconv.ParseInt(r.URL.Query().Get("host"), 10, 64)
 	ch, cancel := w.bus.Subscribe()
 	defer cancel()
+	// Only the Logs page asks for log lines; a nil channel never fires.
+	var lines <-chan logbuf.Line
+	if r.URL.Query().Get("log") == "1" {
+		var cancelLines func()
+		lines, cancelLines = w.logs.Subscribe()
+		defer cancelLines()
+	}
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("X-Accel-Buffering", "no")
@@ -323,6 +344,10 @@ func (w *Web) events(rw http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(rw, ": keepalive\n\n")
 		case ev := <-ch:
 			w.writeHostEvent(rw, r, ev, watch)
+		case ln := <-lines:
+			if html, err := w.renderString("logline", ln); err == nil {
+				writeSSE(rw, "log", html)
+			}
 		}
 		flusher.Flush()
 	}

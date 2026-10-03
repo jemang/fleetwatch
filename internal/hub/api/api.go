@@ -6,7 +6,9 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -44,10 +46,43 @@ type API struct {
 
 	mu         sync.Mutex
 	lastAccept map[int64]time.Time
+	// lastVersion remembers each agent's version since the Hub started, so
+	// an upgrade gets one log line.
+	lastVersion map[int64]string
+	// names caches host names by agent for the report log line; a host keeps
+	// its name for life, a re-enrolled server gets a new agent.
+	names map[int64]string
 }
 
 func New(st *store.Store, bus *live.Bus, now func() time.Time) *API {
-	return &API{st: st, bus: bus, now: now, enrollLimit: limit.New(5, time.Minute, now), lastAccept: map[int64]time.Time{}}
+	return &API{st: st, bus: bus, now: now, enrollLimit: limit.New(5, time.Minute, now),
+		lastAccept: map[int64]time.Time{}, lastVersion: map[int64]string{}, names: map[int64]string{}}
+}
+
+// hostName is the name of the agent's host, read once from the store.
+func (a *API) hostName(r *http.Request, agent store.Agent) string {
+	a.mu.Lock()
+	name, ok := a.names[agent.ID]
+	a.mu.Unlock()
+	if ok {
+		return name
+	}
+	h, err := a.st.Host(r.Context(), agent.HostID)
+	if err != nil {
+		return "host " + strconv.FormatInt(agent.HostID, 10)
+	}
+	a.mu.Lock()
+	a.names[agent.ID] = h.Name
+	a.mu.Unlock()
+	return h.Name
+}
+
+// pct prints a usage value as the log shows it.
+func pct(v *float64) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.0f%%", *v)
 }
 
 func (a *API) Routes(mux *http.ServeMux) {
@@ -66,6 +101,9 @@ func (a *API) agentFor(w http.ResponseWriter, r *http.Request) (store.Agent, boo
 	}
 	agent, err := a.st.AgentByTokenHash(r.Context(), store.HashToken(token))
 	if errors.Is(err, store.ErrNotFound) || (err == nil && agent.Disabled) {
+		if r.URL.Path == "/api/v1/agent/report" {
+			log.Printf("report rejected from %s (unknown or disabled credential)", limit.RemoteIP(r))
+		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return store.Agent{}, false
 	}
@@ -130,6 +168,7 @@ func (a *API) enroll(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, store.ErrEnrollmentRejected) {
 		a.enrollLimit.Fail(ip)
+		log.Printf("enrollment rejected from %s (unknown or used token)", ip)
 		http.Error(w, "enrollment token rejected", http.StatusUnauthorized)
 		return
 	}
@@ -140,6 +179,13 @@ func (a *API) enroll(w http.ResponseWriter, r *http.Request) {
 	kind := live.HostAdded
 	if boundHost != 0 {
 		kind = live.HostUpdated
+	}
+	if h, err := a.st.Host(r.Context(), hostID); err == nil {
+		if boundHost != 0 {
+			log.Printf("credential of %s replaced, agent %s", h.Name, clip(req.AgentVersion))
+		} else {
+			log.Printf("server %s enrolled, agent %s", h.Name, clip(req.AgentVersion))
+		}
 	}
 	a.bus.Publish(live.Event{Kind: kind, HostID: hostID})
 	w.Header().Set("Content-Type", "application/json")
@@ -162,7 +208,8 @@ func (a *API) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := a.now()
-	if !a.intervalOK(agent.ID, now) {
+	if since, ok := a.intervalOK(agent.ID, now); !ok {
+		log.Printf("report from %s rejected (too often, %s since the last)", a.hostName(r, agent), since.Round(time.Second))
 		http.Error(w, "reporting too often", http.StatusTooManyRequests)
 		return
 	}
@@ -195,6 +242,7 @@ func (a *API) report(w http.ResponseWriter, r *http.Request) {
 	err = a.st.AcceptReport(r.Context(), agent.ID, rep, now)
 	var replay *store.ReplayError
 	if errors.As(err, &replay) {
+		log.Printf("report from %s rejected (timestamp %d already seen)", a.hostName(r, agent), rep.TS)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(protocol.ReplayResponse{LastTS: replay.LastTS})
@@ -206,17 +254,31 @@ func (a *API) report(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	a.lastAccept[agent.ID] = now
+	was := a.lastVersion[agent.ID]
+	a.lastVersion[agent.ID] = rep.AgentVersion
 	a.mu.Unlock()
-	a.st.QueueMetric(store.PointFromReport(agent.HostID, rep, now))
+	name := a.hostName(r, agent)
+	if was != "" && rep.AgentVersion != "" && rep.AgentVersion != was {
+		log.Printf("agent on %s now version %s, was %s", name, rep.AgentVersion, was)
+	}
+	point := store.PointFromReport(agent.HostID, rep, now)
+	log.Printf("report from %s: agent %s, cpu %s, ram %s, disk %s", name, rep.AgentVersion, pct(point.CPU), pct(point.Mem), pct(point.Disk))
+	a.st.QueueMetric(point)
 	a.bus.Publish(live.Event{Kind: live.HostUpdated, HostID: agent.HostID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *API) intervalOK(agentID int64, now time.Time) bool {
+// intervalOK reports whether enough time passed since the agent's last
+// accepted report, and how much did.
+func (a *API) intervalOK(agentID int64, now time.Time) (time.Duration, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	last, seen := a.lastAccept[agentID]
-	return !seen || now.Sub(last) >= MinInterval
+	if !seen {
+		return 0, true
+	}
+	since := now.Sub(last)
+	return since, since >= MinInterval
 }
 
 func clip(s string) string {

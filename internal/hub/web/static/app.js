@@ -30,11 +30,11 @@
     }
   }
 
-  // Times of alerts are printed in the viewer's time zone.
+  // Times of alerts and log lines are printed in the viewer's time zone.
   function stamp() {
     document.querySelectorAll('[data-time]').forEach(function (el) {
       var d = new Date(Number(el.dataset.time) * 1000);
-      el.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + hm(d);
+      el.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + hm(d) + (el.dataset.secs ? ':' + pad(d.getSeconds()) : '');
       el.title = d.toLocaleString();
     });
   }
@@ -147,7 +147,61 @@
   document.addEventListener('pointermove', hover);
   document.addEventListener('pointerdown', hover);
 
-  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); labelCharts(); }
+  // Logs: the console follows new lines like tail -f until the reader scrolls up.
+  var consoleBox = document.getElementById('console');
+  var following = true;
+  function logsTick() {
+    if (!consoleBox) return;
+    var keep = Number(consoleBox.dataset.keep || 1000);
+    while (consoleBox.children.length > keep) consoleBox.removeChild(consoleBox.firstChild);
+    var q = document.getElementById('logfilter').value.trim().toLowerCase();
+    var only = document.getElementById('problems').checked, reports = document.getElementById('showreports').checked, shown = 0;
+    Array.prototype.forEach.call(consoleBox.children, function (l) {
+      l.hidden = (only && !l.classList.contains('problem')) || (!reports && l.classList.contains('report')) ||
+        (q !== '' && l.lastChild.textContent.toLowerCase().indexOf(q) === -1);
+      if (!l.hidden) shown++;
+    });
+    document.getElementById('lognone').hidden = !(consoleBox.children.length > 0 && shown === 0);
+    document.getElementById('logcount').textContent = consoleBox.children.length;
+    if (following) consoleBox.scrollTop = consoleBox.scrollHeight;
+  }
+  if (consoleBox) {
+    var follow = document.getElementById('follow'), missed = 0;
+    function setFollow(on) {
+      following = on;
+      missed = 0;
+      follow.setAttribute('aria-pressed', on);
+      follow.textContent = on ? 'Following' : 'Paused';
+      if (on) consoleBox.scrollTop = consoleBox.scrollHeight;
+    }
+    document.getElementById('logfilter').addEventListener('input', logsTick);
+    document.getElementById('problems').addEventListener('change', logsTick);
+    // Agent reports are off by default; the choice is kept in this browser.
+    var showReports = document.getElementById('showreports');
+    try { showReports.checked = localStorage.getItem('fw-logs-reports') === '1'; } catch (e) {}
+    showReports.addEventListener('change', function () {
+      try { localStorage.setItem('fw-logs-reports', showReports.checked ? '1' : '0'); } catch (e) {}
+      logsTick();
+    });
+    follow.addEventListener('click', function () { setFollow(!following); });
+    consoleBox.addEventListener('scroll', function () {
+      var atBottom = consoleBox.scrollHeight - consoleBox.scrollTop - consoleBox.clientHeight < 4;
+      if (following && !atBottom) setFollow(false);
+      else if (!following && atBottom) setFollow(true);
+    });
+    consoleBox.addEventListener('htmx:sseMessage', function () {
+      if (!following) follow.textContent = 'Paused · ' + (++missed) + ' new';
+    });
+    // Lines written while the stream was down are fetched when it is back.
+    document.body.addEventListener('htmx:sseOpen', function () {
+      var last = consoleBox.lastElementChild;
+      fetch('/logs?after=' + (last ? last.dataset.seq : 0), { headers: { 'HX-Request': 'true' } })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (html) { if (html) { consoleBox.insertAdjacentHTML('beforeend', html); refresh(); } });
+    });
+  }
+
+  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); labelCharts(); logsTick(); }
   setInterval(tick, 1000);
   refresh();
   document.body.addEventListener('htmx:sseMessage', refresh);
@@ -173,6 +227,43 @@
     document.body.addEventListener('htmx:sseError', function () { conn.hidden = false; });
     document.body.addEventListener('htmx:sseOpen', function () { conn.hidden = true; });
   }
+
+  // Usage tooltips: one fixed element, so it can neither be clipped by nor
+  // widen a scrolling table. A tap shows it on touch screens; the next tap hides it.
+  var tipBox = null, tipFor = null;
+  function showTip(cell) {
+    if (!tipBox) {
+      tipBox = document.createElement('div');
+      tipBox.className = 'floattip';
+      tipBox.setAttribute('role', 'tooltip');
+      document.body.appendChild(tipBox);
+    }
+    tipFor = cell;
+    tipBox.textContent = cell.dataset.tip;
+    tipBox.classList.add('on');
+    var r = (cell.querySelector('.meter') || cell).getBoundingClientRect(), w = tipBox.offsetWidth, h = tipBox.offsetHeight;
+    var top = r.top - h - 6;
+    if (top < 4) top = r.bottom + 6;
+    tipBox.style.left = Math.min(Math.max(r.left + r.width / 2 - w / 2, 4), window.innerWidth - w - 4) + 'px';
+    tipBox.style.top = top + 'px';
+  }
+  function hideTip() {
+    tipFor = null;
+    if (tipBox) tipBox.classList.remove('on');
+  }
+  document.addEventListener('pointerover', function (e) {
+    if (e.pointerType !== 'mouse') return;
+    var cell = e.target.closest('[data-tip]');
+    if (cell) showTip(cell); else if (tipFor) hideTip();
+  });
+  document.addEventListener('pointerdown', function (e) {
+    var cell = e.target.closest('[data-tip]');
+    if (e.pointerType === 'mouse') { if (!cell) hideTip(); return; }
+    if (cell && cell !== tipFor) showTip(cell); else hideTip();
+  });
+  window.addEventListener('scroll', hideTip, true);
+  // A live update can replace the cell the tooltip points at.
+  document.body.addEventListener('htmx:afterSwap', function () { if (tipFor && !tipFor.isConnected) hideTip(); });
 
   document.body.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-copy]');

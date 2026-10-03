@@ -1,0 +1,30 @@
+{{define "logline"}}<div class="line{{if .Problem}} problem{{end}}{{if .Report}} report{{end}}" data-seq="{{.Seq}}"><time data-time="{{.At.Unix}}" data-secs="1"></time><span>{{.Text}}</span></div>{{end}}
+
+{{define "loglines"}}{{range .}}{{template "logline" .}}{{end}}{{end}}
+
+{{define "logs"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Logs"}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events?log=1">
+{{template "subtop" "Logs"}}
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <div class="logbar">
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input id="logfilter" type="search" placeholder="Filter lines..." aria-label="Filter lines" autocomplete="off">
+    </label>
+    <label class="check"><input id="problems" type="checkbox">Problems only</label>
+    <label class="check"><input id="showreports" type="checkbox">Agent reports</label>
+    <button type="button" id="follow" aria-pressed="true">Following</button>
+    <form method="get" action="/logs.txt"><button>Download</button></form>
+  </div>
+  <div id="console" class="console" data-keep="{{.Keeps}}" sse-swap="log" hx-swap="beforeend">{{range .Lines}}{{template "logline" .}}{{end}}</div>
+  <p id="lognone" class="nomatch" role="status" hidden>No line matches.</p>
+  <p class="hint"><span id="logcount">{{len .Lines}}</span> lines since the Hub started at <time data-time="{{.Start}}" data-secs="1"></time>. Keeps the last {{.Keeps}}; older lines: <code>docker logs fleetwatch-hub-1</code>.</p>
+</main>
+{{template "foot" .}}
+{{template "scripts"}}
+</body>
+</html>{{end}}

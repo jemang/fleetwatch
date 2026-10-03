@@ -30,6 +30,7 @@ type Usage struct {
 	Pct   int
 	Warn  bool
 	Label string
+	Tip   string // amounts behind the percentage, shown on hover
 }
 
 type HostRow struct {

@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -428,3 +430,86 @@ func TestEnrollWithBoundTokenKeepsTheHost(t *testing.T) {
 		t.Errorf("the new credential: %d, want 204", w.Code)
 	}
 }
+
+func TestEnrollAndUpgradeAreLogged(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	e := setup(t)
+	tok := e.enroll("web-01").AgentToken
+	if w := e.post("/api/v1/agent/report", tok, report(100)); w.Code != http.StatusNoContent {
+		t.Fatalf("first report: %d", w.Code)
+	}
+	e.now = e.now.Add(10 * time.Second)
+	newer, _ := json.Marshal(protocol.Report{ProtocolVersion: 1, AgentVersion: "0.1.2", TS: 110})
+	if w := e.post("/api/v1/agent/report", tok, newer); w.Code != http.StatusNoContent {
+		t.Fatalf("second report: %d", w.Code)
+	}
+	e.now = e.now.Add(10 * time.Second)
+	again, _ := json.Marshal(protocol.Report{ProtocolVersion: 1, AgentVersion: "0.1.2", TS: 120})
+	if w := e.post("/api/v1/agent/report", tok, again); w.Code != http.StatusNoContent {
+		t.Fatalf("third report: %d", w.Code)
+	}
+	// A bound token replaces the credential of the same host.
+	bound, _ := store.NewToken()
+	e.st.CreateHostEnrollmentToken(t.Context(), store.HashToken(bound), 1, e.now, e.now.Add(time.Minute))
+	body, _ := json.Marshal(protocol.EnrollRequest{Token: bound, Hostname: "web-01", AgentVersion: "0.1.2", ProtocolVersion: 1})
+	if w := e.post("/api/v1/agent/enroll", "", body); w.Code != http.StatusOK {
+		t.Fatalf("bound enroll: %d", w.Code)
+	}
+	body, _ = json.Marshal(protocol.EnrollRequest{Token: "bogus", Hostname: "x", ProtocolVersion: 1})
+	e.post("/api/v1/agent/enroll", "", body)
+
+	got := logged.String()
+	for _, want := range []string{
+		"server web-01 enrolled, agent 0.1.0\n",
+		"agent on web-01 now version 0.1.2, was 0.1.0\n",
+		"credential of web-01 replaced, agent 0.1.2\n",
+		"enrollment rejected from 192.0.2.1 (unknown or used token)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "now version") != 1 {
+		t.Errorf("a version change is logged once:\n%s", got)
+	}
+	if strings.Contains(got, tok) || strings.Contains(got, bound) {
+		t.Errorf("a token reached the log:\n%s", got)
+	}
+}
+
+func TestReportsAreLogged(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	e := setup(t)
+	tok := e.enroll("web-01").AgentToken
+	if w := e.post("/api/v1/agent/report", tok, report(100)); w.Code != http.StatusNoContent {
+		t.Fatalf("first report: %d", w.Code)
+	}
+	e.post("/api/v1/agent/report", tok, report(101)) // 2 s rule: too often
+	e.now = e.now.Add(10 * time.Second)
+	e.post("/api/v1/agent/report", tok, report(100)) // replay
+	e.post("/api/v1/agent/report", "wrong", report(102))
+	e.now = e.now.Add(10 * time.Second)
+	full, _ := json.Marshal(protocol.Report{ProtocolVersion: 1, AgentVersion: "0.1.0", TS: 200, Metrics: protocol.Metrics{
+		CPUPct: ptr(3.4), Mem: &protocol.Mem{Total: 1000, Used: 410}, Disks: []protocol.Disk{{Mount: "/", Total: 100, Used: 62}, {Mount: "/data", Total: 100, Used: 20}}}})
+	if w := e.post("/api/v1/agent/report", tok, full); w.Code != http.StatusNoContent {
+		t.Fatalf("full report: %d", w.Code)
+	}
+	got := logged.String()
+	for _, want := range []string{
+		"report from web-01: agent 0.1.0, cpu 14%, ram -, disk -\n",
+		"report from web-01 rejected (too often, 0s since the last)\n",
+		"report from web-01 rejected (timestamp 100 already seen)\n",
+		"report rejected from 192.0.2.1 (unknown or disabled credential)\n",
+		"report from web-01: agent 0.1.0, cpu 3%, ram 41%, disk 62%\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func ptr(f float64) *float64 { return &f }

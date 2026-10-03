@@ -18,7 +18,7 @@
 <h2>Guests</h2>
 <table class="hosts plain">
   <thead><tr><th>ID</th><th>Guest</th><th>Type</th><th>Status</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Uptime</th><th>IP</th></tr></thead>
-  <tbody>{{range .Guests}}<tr><td>{{.ID}}</td><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td><span class="svc" data-s="{{.Status}}"><span class="dot"></span>{{.Status}}</span></td><td>{{.CPU}}</td><td>{{.Mem}}</td><td>{{.Disk}}</td><td>{{.Uptime}}</td><td>{{.IP}}</td></tr>{{else}}<tr><td colspan="9" class="none">No guests on this node.</td></tr>{{end}}</tbody>
+  <tbody>{{range .Guests}}<tr><td>{{.ID}}</td><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td><span class="svc" data-s="{{.Status}}"><span class="dot"></span>{{.Status}}</span></td>{{template "usage" .CPU}}{{template "usage" .Mem}}{{template "usage" .Disk}}<td>{{.Uptime}}</td><td>{{.IP}}</td></tr>{{else}}<tr><td colspan="9" class="none">No guests on this node.</td></tr>{{end}}</tbody>
 </table>
 <h2>Storage</h2>
 <table class="hosts plain">

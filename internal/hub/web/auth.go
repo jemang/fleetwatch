@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -84,6 +85,7 @@ func (w *Web) loginSubmit(rw http.ResponseWriter, r *http.Request) {
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(r.PostFormValue("password"))) != nil {
 		w.loginLimit.Fail(ip)
+		log.Printf("login failed from %s (wrong password)", ip)
 		w.render(rw, http.StatusUnauthorized, "login", w.loginView(r, "Wrong password."))
 		return
 	}
@@ -91,6 +93,7 @@ func (w *Web) loginSubmit(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("login from %s", ip)
 	http.Redirect(rw, r, "/", http.StatusSeeOther)
 }
 
@@ -98,6 +101,7 @@ func (w *Web) logout(rw http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {
 		w.st.DeleteSession(r.Context(), store.HashToken(c.Value))
 	}
+	log.Printf("logout from %s", limit.RemoteIP(r))
 	http.SetCookie(rw, &http.Cookie{Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: w.secure})
 	http.Redirect(rw, r, "/login", http.StatusSeeOther)
 }

@@ -209,22 +209,46 @@ func TestProxmoxInRowAndDetail(t *testing.T) {
 	if d.PVE == nil || d.PVE.Summary != "Proxmox VE 8.2.4 · node pve-01 · cluster lab (quorate)" || d.PVE.Note != "" {
 		t.Fatalf("proxmox line = %+v", d.PVE)
 	}
+	// The bars carry the percentage; the tooltip carries the amounts. A stopped
+	// guest and a VM disk (Proxmox reports no usage) have no bar, only the size.
 	want := []GuestRow{
-		{ID: 101, Name: "nginx", Type: "LXC", Status: "running", CPU: "1% of 2", Mem: "128.0 MiB / 512.0 MiB", Disk: "1.0 GiB / 8.0 GiB", Uptime: "1h 0m", IP: "192.168.10.21"},
-		{ID: 110, Name: "app-server", Type: "VM", Status: "running", CPU: "12.5% of 4", Mem: "2.0 GiB / 8.0 GiB", Disk: "50.0 GiB", Uptime: "1d 0h", IP: "Unknown"},
-		{ID: 115, Name: "ocrmypdf", Type: "LXC", Status: "stopped", CPU: "–", Mem: "512.0 MiB", Disk: "8.0 GiB", Uptime: "–", IP: "–"},
+		{ID: 101, Name: "nginx", Type: "LXC", Status: "running",
+			CPU:    Usage{Known: true, Pct: 1, Tip: "1% of 2 CPUs"},
+			Mem:    Usage{Known: true, Pct: 25, Tip: "128.0 MiB / 512.0 MiB"},
+			Disk:   Usage{Known: true, Pct: 13, Tip: "1.0 GiB / 8.0 GiB"},
+			Uptime: "1h 0m", IP: "192.168.10.21"},
+		{ID: 110, Name: "app-server", Type: "VM", Status: "running",
+			CPU:    Usage{Known: true, Pct: 13, Tip: "12.5% of 4 CPUs"},
+			Mem:    Usage{Known: true, Pct: 25, Tip: "2.0 GiB / 8.0 GiB"},
+			Disk:   Usage{Tip: "50.0 GiB allocated, usage not reported for VMs"},
+			Uptime: "1d 0h", IP: "Unknown"},
+		{ID: 115, Name: "ocrmypdf", Type: "LXC", Status: "stopped",
+			CPU:    Usage{Tip: "1 CPU, stopped"},
+			Mem:    Usage{Tip: "512.0 MiB allocated, stopped"},
+			Disk:   Usage{Tip: "8.0 GiB allocated, stopped"},
+			Uptime: "–", IP: "–"},
 	}
 	for i, w := range want {
 		if d.PVE.Guests[i] != w {
 			t.Errorf("guest %d = %+v\nwant      %+v", i, d.PVE.Guests[i], w)
 		}
 	}
+	busy := pveHost()
+	busy.Metrics.Proxmox.Guests = []protocol.Guest{{ID: 1, Type: "lxc", Status: "running", CPUs: 1, CPUPct: 95, MemUsed: 95, MemMax: 100, DiskUsed: 95, DiskMax: 100},
+		{ID: 2, Type: "lxc", Status: "running", CPUs: 1}}
+	g := BuildDetail(busy, now).PVE.Guests
+	if !g[0].CPU.Warn || !g[0].Mem.Warn || !g[0].Disk.Warn {
+		t.Errorf("a guest over the limits must be coloured as a warning: %+v", g[0])
+	}
+	if g[1].Mem.Known || g[1].Disk.Known {
+		t.Errorf("a guest without sizes must have no bar, not a division by zero: %+v", g[1])
+	}
 	if len(d.PVE.Storage) != 2 || d.PVE.Storage[0].Size != "40.0 GiB / 100.0 GiB" || d.PVE.Storage[0].Usage.Pct != 40 || !d.PVE.Storage[0].Active || d.PVE.Storage[1].Active || d.PVE.Storage[1].Usage.Known {
 		t.Errorf("storage = %+v", d.PVE.Storage)
 	}
 	h := onlineHost()
 	h.Metrics.Proxmox = &protocol.Proxmox{Detected: true}
-	if d := BuildDetail(h, now); d.PVE == nil || !strings.Contains(d.PVE.Note, "API token") {
+	if d := BuildDetail(h, now); d.PVE == nil || !strings.Contains(d.PVE.Note, "API token") || !strings.Contains(d.PVE.Note, "Replace credential") {
 		t.Errorf("detected without a token must say what to do: %+v", d.PVE)
 	}
 	h.Metrics.Proxmox = &protocol.Proxmox{Detected: true, Configured: true, Error: "pve: /version answered HTTP 401"}

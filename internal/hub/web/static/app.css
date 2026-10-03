@@ -92,8 +92,8 @@ body[data-page] > .top, body[data-page] > .foot { grid-column: 1 / -1; }
 .side a { display: flex; align-items: center; padding: 8px 10px; color: var(--ink-2); text-decoration: none; border-radius: 6px; transition: background-color 150ms, color 150ms; }
 .side a::before { content: ">"; margin-right: 12px; color: transparent; }
 .side a:hover { color: var(--ink); background: var(--hover); }
-body[data-page="hosts"] .side [data-nav="hosts"], body[data-page="alerts"] .side [data-nav="alerts"], body[data-page="settings"] .side [data-nav="settings"] { color: var(--ink); font-weight: 600; background: rgba(60, 200, 238, 0.1); }
-body[data-page="hosts"] .side [data-nav="hosts"]::before, body[data-page="alerts"] .side [data-nav="alerts"]::before, body[data-page="settings"] .side [data-nav="settings"]::before { color: var(--accent); }
+body[data-page="hosts"] .side [data-nav="hosts"], body[data-page="alerts"] .side [data-nav="alerts"], body[data-page="logs"] .side [data-nav="logs"], body[data-page="settings"] .side [data-nav="settings"] { color: var(--ink); font-weight: 600; background: rgba(60, 200, 238, 0.1); }
+body[data-page="hosts"] .side [data-nav="hosts"]::before, body[data-page="alerts"] .side [data-nav="alerts"]::before, body[data-page="logs"] .side [data-nav="logs"]::before, body[data-page="settings"] .side [data-nav="settings"]::before { color: var(--accent); }
 .side .count { margin-left: auto; padding: 0 8px; font-size: 12px; font-weight: 500; color: var(--ink-2); border: 1px solid var(--line-strong); border-radius: 10px; font-variant-numeric: tabular-nums; }
 .side .count.bad { color: var(--bad); font-weight: 700; border-color: rgba(242, 80, 110, 0.55); background: rgba(242, 80, 110, 0.1); }
 
@@ -211,6 +211,9 @@ svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart.on .dot { display: block; fill: var(--accent); stroke: var(--panel-solid); stroke-width: 2; }
 .chart-box .tip { display: none; position: absolute; top: 34px; transform: translateX(-50%); padding: 2px 8px; font-size: 12px; white-space: pre; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
 .chart-box .tip.on { display: block; }
+.floattip { display: none; position: fixed; z-index: 50; max-width: min(320px, calc(100vw - 8px)); padding: 3px 9px; font-size: 12px; line-height: 1.4; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
+.floattip.on { display: block; }
+td[data-tip] { cursor: default; }
 
 .svc { display: inline-flex; align-items: center; gap: 10px; color: var(--ink-2); }
 .svc .dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--ink-3); }
@@ -259,6 +262,26 @@ svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 main > .error { max-width: 760px; }
 
 .empty, .nomatch { max-width: 64ch; margin: 24px 4px; color: var(--ink-2); }
+
+/* Logs: a console that follows the Hub's log like tail -f. */
+.logbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 12px; }
+.logbar .search { flex: 1 1 260px; max-width: 440px; min-width: 0; }
+.logbar form { margin: 0 0 0 auto; }
+.check { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); cursor: pointer; user-select: none; }
+.check input { margin: 0; accent-color: var(--accent); }
+#follow { min-width: 120px; }
+#follow[aria-pressed="false"] { color: var(--warn); border-color: rgba(245, 179, 53, 0.55); }
+.console {
+  height: calc(100vh - 300px); min-height: 320px; overflow: auto; overscroll-behavior: contain; padding: 10px 16px;
+  font-size: 13px; line-height: 1.6; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: var(--shadow);
+}
+.console .line { display: flex; gap: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.console .line[hidden] { display: none; }
+.console time { flex: none; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.console .problem span { color: var(--bad); }
+.console .report span { color: var(--ink-2); }
+.console:empty::before { content: "Nothing logged yet."; color: var(--ink-3); }
+.nomatch + .hint code { color: var(--ink-2); }
 .empty strong { color: var(--accent-ink); font-weight: 600; }
 .scroll:has(tbody tr) ~ .empty { display: none; }
 .hosts:not(:has(tbody tr)) { display: none; }

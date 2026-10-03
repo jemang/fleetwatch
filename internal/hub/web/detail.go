@@ -34,8 +34,9 @@ type NetRow struct{ Name, State, Addrs, Rx, Tx string }
 type ServiceRow struct{ Name, Status string }
 
 type GuestRow struct {
-	ID                                             int
-	Name, Type, Status, CPU, Mem, Disk, Uptime, IP string
+	ID                             int
+	Name, Type, Status, Uptime, IP string
+	CPU, Mem, Disk                 Usage
 }
 
 type StorageRow struct {
@@ -52,6 +53,13 @@ type PVEView struct {
 	Storage       []StorageRow
 }
 
+func cpuCount(n int) string {
+	if n == 1 {
+		return "1 CPU"
+	}
+	return strconv.Itoa(n) + " CPUs"
+}
+
 func buildPVE(p *protocol.Proxmox) *PVEView {
 	if p == nil || !p.Detected {
 		return nil
@@ -59,7 +67,7 @@ func buildPVE(p *protocol.Proxmox) *PVEView {
 	v := &PVEView{Summary: "Proxmox VE"}
 	switch {
 	case !p.Configured:
-		v.Note = "Proxmox was detected on this host. Add a read-only API token to the agent to see guests and storage."
+		v.Note = "Proxmox was detected on this host, but the agent has no API token. To see guests and storage, use Replace credential on this page and run the install command it shows: it creates a read-only token."
 		return v
 	case p.Error != "":
 		v.Note = "The Proxmox API could not be read: " + p.Error
@@ -77,17 +85,25 @@ func buildPVE(p *protocol.Proxmox) *PVEView {
 		}
 	}
 	for _, g := range p.Guests {
-		row := GuestRow{ID: g.ID, Name: g.Name, Type: "VM", Status: g.Status, CPU: "–", Uptime: "–", IP: "–"}
+		row := GuestRow{ID: g.ID, Name: g.Name, Type: "VM", Status: g.Status, Uptime: "–", IP: "–"}
 		if g.Type == "lxc" {
 			row.Type = "LXC"
 		}
 		running := g.Status == "running"
-		row.Mem, row.Disk = fmtBytes(g.MemMax), fmtBytes(g.DiskMax)
+		row.CPU.Tip = cpuCount(g.CPUs) + ", stopped"
+		row.Mem.Tip = fmtBytes(g.MemMax) + " allocated, stopped"
+		row.Disk.Tip = fmtBytes(g.DiskMax) + " allocated, stopped"
 		if running {
-			row.CPU = fmt.Sprintf("%s%% of %d", strconv.FormatFloat(g.CPUPct, 'f', -1, 64), g.CPUs)
-			row.Mem = fmtBytes(g.MemUsed) + " / " + fmtBytes(g.MemMax)
-			if g.DiskUsed > 0 { // Proxmox reports no disk usage for VMs
-				row.Disk = fmtBytes(g.DiskUsed) + " / " + fmtBytes(g.DiskMax)
+			row.CPU = usage(g.CPUPct, warnCPU, "")
+			row.CPU.Tip = strconv.FormatFloat(g.CPUPct, 'f', -1, 64) + "% of " + cpuCount(g.CPUs)
+			if g.MemMax > 0 {
+				row.Mem = usage(ratio(g.MemUsed, g.MemMax), warnRAM, "")
+				row.Mem.Tip = fmtBytes(g.MemUsed) + " / " + fmtBytes(g.MemMax)
+			}
+			row.Disk.Tip = fmtBytes(g.DiskMax) + " allocated, usage not reported for VMs"
+			if g.DiskUsed > 0 && g.DiskMax > 0 { // Proxmox reports no disk usage for VMs
+				row.Disk = usage(ratio(g.DiskUsed, g.DiskMax), warnDisk, "")
+				row.Disk.Tip = fmtBytes(g.DiskUsed) + " / " + fmtBytes(g.DiskMax)
 			}
 			if g.UptimeS > 0 {
 				row.Uptime = fmtUptime(g.UptimeS)
