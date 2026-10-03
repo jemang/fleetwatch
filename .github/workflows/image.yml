@@ -59,7 +59,10 @@ jobs:
           push: true
           build-args: VERSION=${{ steps.v.outputs.version }}
           # Mounted at /run/secrets/signing_key for the signing step only; stored in no layer.
-          secrets: signing_key=${{ secrets.SIGNING_KEY }}
+          # The quotes keep the multi-line PEM as one value; without them only
+          # the first line reaches the build and signing fails with "not PEM".
+          secrets: |
+            "signing_key=${{ secrets.SIGNING_KEY }}"
           tags: |
             ghcr.io/${{ github.repository_owner }}/fleetwatch-hub:${{ steps.v.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/fleetwatch-hub:latest
