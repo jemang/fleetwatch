@@ -42,6 +42,20 @@ func TestRetentionFromEnvironment(t *testing.T) {
 	if err != nil || c.Retention.Raw != 48*time.Hour || c.Retention.Hour1 != 17520*time.Hour || c.Retention.Min1 != store.DefaultRetention.Min1 {
 		t.Errorf("retention = %+v, %v", c.Retention, err)
 	}
+	if c.Retention.SvcRaw != 7*24*time.Hour || c.Retention.SvcHour1 != 90*24*time.Hour {
+		t.Errorf("service retention defaults = %v, %v; want 7 and 90 days", c.Retention.SvcRaw, c.Retention.SvcHour1)
+	}
+	base["FLEETWATCH_RETENTION_SVC_RAW"] = "72h"
+	base["FLEETWATCH_RETENTION_SVC_1H"] = "720h"
+	c, err = LoadConfig(envOf(base))
+	if err != nil || c.Retention.SvcRaw != 72*time.Hour || c.Retention.SvcHour1 != 720*time.Hour {
+		t.Errorf("service retention = %+v, %v", c.Retention, err)
+	}
+	base["FLEETWATCH_RETENTION_SVC_1H"] = "-1h"
+	if _, err := LoadConfig(envOf(base)); err == nil || !strings.Contains(err.Error(), "FLEETWATCH_RETENTION_SVC_1H") {
+		t.Errorf("bad service retention: err = %v, want it to name the variable", err)
+	}
+	base["FLEETWATCH_RETENTION_SVC_1H"] = "720h"
 	for _, bad := range []string{"soon", "-1h", "0"} {
 		base["FLEETWATCH_RETENTION_5M"] = bad
 		if _, err := LoadConfig(envOf(base)); err == nil || !strings.Contains(err.Error(), "FLEETWATCH_RETENTION_5M") {

@@ -53,6 +53,7 @@ func LoadConfig(env func(string) string) (Config, error) {
 	for name, dst := range map[string]*time.Duration{
 		"FLEETWATCH_RETENTION_RAW": &c.Retention.Raw, "FLEETWATCH_RETENTION_1M": &c.Retention.Min1,
 		"FLEETWATCH_RETENTION_5M": &c.Retention.Min5, "FLEETWATCH_RETENTION_1H": &c.Retention.Hour1,
+		"FLEETWATCH_RETENTION_SVC_RAW": &c.Retention.SvcRaw, "FLEETWATCH_RETENTION_SVC_1H": &c.Retention.SvcHour1,
 	} {
 		v := env(name)
 		if v == "" {

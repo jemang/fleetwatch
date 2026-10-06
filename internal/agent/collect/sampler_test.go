@@ -171,3 +171,14 @@ func TestHangingCollectorIsSkippedAndNotStartedTwice(t *testing.T) {
 		t.Errorf("a collector that is still running must not be started again, calls = %d", calls.Load())
 	}
 }
+
+// A finished collection must not block the next one: the guard is free
+// before its result can be read.
+func TestGuardIsFreeWhenTheResultArrives(t *testing.T) {
+	var g guard[int]
+	for i := 0; i < 20000; i++ {
+		if _, ok := g.run(time.Second, func() (int, error) { return i, nil }); !ok {
+			t.Fatalf("run %d was refused right after the previous one finished", i)
+		}
+	}
+}

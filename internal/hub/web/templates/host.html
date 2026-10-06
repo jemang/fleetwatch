@@ -62,6 +62,9 @@
   <div class="statusline"><span>v{{.Version}}</span><span id="statusline" sse-swap="statusline" hx-swap="innerHTML">{{template "statusline" .Summary}}</span><span id="clock"></span></div>
 </footer>{{end}}
 
+{{define "hostservices"}}{{if .}}<h2>Services on this host</h2>
+<ul class="host-services">{{range .}}<li><a href="/services/{{.ID}}">{{.Name}}</a>{{template "svclive" .}}</li>{{end}}</ul>{{end}}{{end}}
+
 {{define "host"}}<!doctype html>
 <html lang="en">
 <head>{{template "head" .Detail.Row.Name}}</head>
@@ -69,7 +72,7 @@
 <header class="top">
   <h1><a href="/">{{template "brand"}}</a><span class="crumb">{{.Detail.Row.Name}}</span></h1>
   <div class="actions">
-    <a class="button" href="/">All hosts</a>
+    <a class="button" href="/hosts">All hosts</a>
     <form method="post" action="/logout"><button>Log out</button></form>
   </div>
 </header>
@@ -83,6 +86,7 @@
     <div><dt>Memory</dt><dd>{{.Detail.MemTotal}}</dd></div>
   </dl>
   <div id="now" sse-swap="detail" hx-swap="innerHTML">{{template "now" .Detail}}</div>
+  <div id="host-services" hx-get="/hosts/{{.Detail.Row.ID}}/services" hx-trigger="sse:services" hx-swap="innerHTML">{{template "hostservices" .Services}}</div>
   <h2>History</h2>
   <section id="charts" hx-get="/hosts/{{.Detail.Row.ID}}/charts?range=1h" hx-trigger="load" hx-swap="innerHTML"></section>
   <h2>Name</h2>

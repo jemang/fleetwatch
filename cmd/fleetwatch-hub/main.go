@@ -16,6 +16,7 @@ import (
 
 	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/api"
+	"fleetwatch/internal/hub/checker"
 	"fleetwatch/internal/hub/dist"
 	"fleetwatch/internal/hub/limit"
 	"fleetwatch/internal/hub/live"
@@ -102,6 +103,9 @@ func maintain(ctx context.Context, st *store.Store, keep store.Retention) {
 		if err := st.Rollup(ctx, now); err != nil && ctx.Err() == nil {
 			log.Printf("history rollup: %v", err)
 		}
+		if err := st.RollupServiceChecks(ctx, now); err != nil && ctx.Err() == nil {
+			log.Printf("service history rollup: %v", err)
+		}
 		if _, err := st.Prune(ctx, now, keep); err != nil && ctx.Err() == nil {
 			log.Printf("history cleanup: %v", err)
 		}
@@ -155,6 +159,8 @@ func run() error {
 	go maintain(ctx, st, cfg.Retention)
 	alerts := &alert.Engine{St: st, Bus: bus, Now: time.Now, Hub: web.HubName(cfg.PublicURL), Log: log.Printf}
 	go alerts.Run(ctx, 15*time.Second)
+	checks := &checker.Checker{St: st, Bus: bus, Now: time.Now, Log: log.Printf}
+	go checks.Run(ctx, time.Second)
 
 	srv := newServer(cfg.Listen, securityHeaders(logSlow(mux, log.Printf, time.Now)))
 	go func() {

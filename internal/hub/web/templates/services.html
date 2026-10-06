@@ -1,13 +1,16 @@
+{{define "svclive"}}<span class="st" data-state="{{.State}}"{{if .Reason}} title="{{.Reason}}"{{end}}><span class="dot"></span>{{if eq .State "paused"}}paused{{else if eq .State "down"}}<b>DOWN</b> · <span data-for="{{.Since}}"></span>{{else if eq .State "online"}}{{.MsText}} · checked <span data-ts="{{.Checked}}"></span>{{else if eq .State "degraded"}}{{.MsText}} · slow · checked <span data-ts="{{.Checked}}"></span>{{else if .Checked}}checking…{{else}}not checked yet{{end}}{{if and .Uptime (ne .Uptime "–") (or (eq .State "online") (eq .State "degraded") (eq .State "down"))}} · {{.Uptime}}{{end}}</span>{{end}}
+
 {{define "servicecard"}}<div class="svc-card" id="svc-{{.ID}}" data-search="{{.Search}}" data-state="{{if .Paused}}paused{{else}}unknown{{end}}">
   <a class="open" href="{{.URL}}" target="_blank" rel="noopener noreferrer">
     {{if .IconURL}}<img src="{{.IconURL}}" alt="" width="28" height="28">{{else}}<span class="letter" aria-hidden="true">{{.Letter}}</span>{{end}}
     <span class="name">{{.Name}}</span>
     {{if .Group}}<span class="grp">{{.Group}}</span>{{end}}
-    <span class="state"><span class="dot"></span>{{if .Paused}}paused{{else}}not checked yet{{end}}</span>
+    <span class="state" sse-swap="svc-{{.ID}}" hx-swap="innerHTML">{{template "svclive" .}}</span>
   </a>
   <details class="svc-menu">
     <summary aria-label="Actions for {{.Name}}">⋯</summary>
     <div class="svc-actions">
+      <a class="button" href="/services/{{.ID}}">Details</a>
       <button type="button" hx-get="/services/{{.ID}}/edit" hx-target="#service-body" hx-swap="innerHTML">Edit</button>
       <form method="post" action="/services/{{.ID}}/enabled"><input type="hidden" name="enabled" value="{{if .Paused}}1{{else}}0{{end}}"><button>{{if .Paused}}Resume{{else}}Pause{{end}}</button></form>
       <form method="post" action="/services/{{.ID}}/delete" data-confirm="Delete {{.Name}}? It is removed from FleetWatch only; the application itself is not touched."><button class="danger">Delete</button></form>

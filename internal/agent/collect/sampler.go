@@ -30,8 +30,9 @@ func (g *guard[T]) run(timeout time.Duration, fn func() (T, error)) (T, bool) {
 	}
 	ch := make(chan result[T], 1)
 	go func() {
-		defer g.busy.Store(false)
 		v, err := fn()
+		// Free before sending: the caller may run again as soon as it reads.
+		g.busy.Store(false)
 		ch <- result[T]{v, err}
 	}()
 	timer := time.NewTimer(timeout)

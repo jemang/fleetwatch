@@ -9,13 +9,16 @@ import (
 // Alert is one condition on one host. An open alert (ResolvedAt zero) is
 // pending until FiredAt is set.
 type Alert struct {
-	ID, HostID                    int64
-	Host                          string
+	ID, HostID                    int64  // HostID is 0 for a service alert
+	Host                          string // the alert's host, the service's related host, or ""
+	ServiceID                     int64
+	Service, ServiceURL           string
 	Kind, Subject, Detail         string
 	PendingSince                  time.Time
 	FiredAt, ResolvedAt           time.Time
 	DismissedAt                   time.Time
 	NotifiedFire, NotifiedResolve bool
+	EndedQuietly                  bool // ended without a "resolved" message (EndAlertQuietly)
 }
 
 func (a Alert) State() string {
@@ -30,9 +33,9 @@ func (a Alert) State() string {
 	return "pending"
 }
 
-const alertSelect = `SELECT a.id, a.host_id, ` + shownName + `, a.kind, a.subject, a.detail, a.pending_since,
-	a.fired_at, a.resolved_at, a.dismissed_at, a.notified_fire, a.notified_resolve
-	FROM alerts a JOIN hosts h ON h.id = a.host_id`
+const alertSelect = `SELECT a.id, COALESCE(a.host_id, 0), COALESCE(` + shownName + `, ''), COALESCE(a.service_id, 0), COALESCE(s.name, ''), COALESCE(s.url, ''),
+	a.kind, a.subject, a.detail, a.pending_since, a.fired_at, a.resolved_at, a.dismissed_at, a.notified_fire, a.notified_resolve = 1, a.notified_resolve = 2
+	FROM alerts a LEFT JOIN services s ON s.id = a.service_id LEFT JOIN hosts h ON h.id = COALESCE(a.host_id, s.host_id)`
 
 func unixOrZero(n sql.NullInt64) time.Time {
 	if !n.Valid {
@@ -52,7 +55,7 @@ func (s *Store) queryAlerts(ctx context.Context, query string, args ...any) ([]A
 		var a Alert
 		var pending int64
 		var fired, resolved, dismissed sql.NullInt64
-		if err := rows.Scan(&a.ID, &a.HostID, &a.Host, &a.Kind, &a.Subject, &a.Detail, &pending, &fired, &resolved, &dismissed, &a.NotifiedFire, &a.NotifiedResolve); err != nil {
+		if err := rows.Scan(&a.ID, &a.HostID, &a.Host, &a.ServiceID, &a.Service, &a.ServiceURL, &a.Kind, &a.Subject, &a.Detail, &pending, &fired, &resolved, &dismissed, &a.NotifiedFire, &a.NotifiedResolve, &a.EndedQuietly); err != nil {
 			return nil, err
 		}
 		a.PendingSince, a.FiredAt, a.ResolvedAt, a.DismissedAt = time.Unix(pending, 0), unixOrZero(fired), unixOrZero(resolved), unixOrZero(dismissed)
@@ -113,6 +116,29 @@ func (s *Store) CreateAlert(ctx context.Context, hostID int64, kind, subject, de
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// CreateServiceAlert opens an alert for a service, as CreateAlert does for a host.
+func (s *Store) CreateServiceAlert(ctx context.Context, serviceID int64, kind, subject, detail string, now time.Time, fire bool) (int64, error) {
+	var fired any
+	if fire {
+		fired = now.Unix()
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO alerts (service_id, kind, subject, detail, pending_since, fired_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		serviceID, kind, subject, detail, now.Unix(), fired)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// EndAlertQuietly ends an alert without a "resolved" message: the condition
+// is gone, but saying it was fixed would be false (a paused service, a new
+// address, a certificate moving to the next warning). notified_resolve 2
+// means "no message owed", so the page does not claim one was sent.
+func (s *Store) EndAlertQuietly(ctx context.Context, id int64, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE alerts SET resolved_at = ?, notified_resolve = 2 WHERE id = ? AND resolved_at IS NULL`, now.Unix(), id)
+	return err
 }
 
 func (s *Store) FireAlert(ctx context.Context, id int64, now time.Time) error {

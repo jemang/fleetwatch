@@ -122,3 +122,78 @@ func TestSettings(t *testing.T) {
 		t.Errorf("settings = %v; a later write replaces a key and keeps the others", got)
 	}
 }
+
+func TestMigrationToV10KeepsHostAlerts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v9.db")
+	old, _ := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	for _, m := range migrations[:9] {
+		for _, stmt := range m {
+			if _, err := old.Exec(stmt); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	old.Exec(`PRAGMA user_version = 9`)
+	old.Exec(`INSERT INTO hosts (id, name, updated_at) VALUES (7, 'web-01', 1)`)
+	if _, err := old.Exec(`INSERT INTO alerts (id, host_id, kind, subject, detail, pending_since, fired_at, resolved_at, notified_fire, notified_resolve)
+		VALUES (41, 7, 'cpu_high', '', 'CPU 95%', 100, 160, 400, 1, 1), (42, 7, 'disk_full', '/data', '/data 90%', 500, 500, NULL, 1, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	a, err := s.Alert(ctx, 41)
+	if err != nil || a.HostID != 7 || a.Host != "web-01" || a.Detail != "CPU 95%" || !a.NotifiedFire || !a.NotifiedResolve || a.ResolvedAt.Unix() != 400 || a.ServiceID != 0 {
+		t.Fatalf("alert 41 after migration = %+v, %v", a, err)
+	}
+	open, _ := s.OpenAlerts(ctx)
+	if len(open) != 1 || open[0].ID != 42 || open[0].Subject != "/data" {
+		t.Fatalf("open alerts = %+v", open)
+	}
+	if _, err := s.CreateAlert(ctx, 7, "disk_full", "/data", "", t0, true); err == nil {
+		t.Error("a second open alert for the same host, kind and subject must be refused")
+	}
+}
+
+func TestServiceAlerts(t *testing.T) {
+	s := open(t)
+	_, hostID := enrolled(t, s)
+	sid, _ := s.CreateService(ctx, Service{Name: "Grafana", URL: "https://grafana.lan/x?token=1", HostID: hostID, IntervalS: 60, TimeoutS: 10, Enabled: true}, t0)
+	id, err := s.CreateServiceAlert(ctx, sid, "svc_down", "", "timeout", t0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateServiceAlert(ctx, sid, "svc_down", "", "", t0, true); err == nil {
+		t.Error("a second open svc_down for the same service must be refused")
+	}
+	a, err := s.Alert(ctx, id)
+	if err != nil || a.ServiceID != sid || a.Service != "Grafana" || a.ServiceURL != "https://grafana.lan/x?token=1" || a.HostID != 0 || a.Host != "web-01" || a.FiredAt.IsZero() {
+		t.Fatalf("service alert = %+v, %v", a, err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO alerts (kind, pending_since) VALUES ('x', 1)`); err == nil {
+		t.Error("an alert without host and service must be refused")
+	}
+	if _, err := s.db.Exec(`INSERT INTO alerts (host_id, service_id, kind, pending_since) VALUES (?, ?, 'x', 1)`, hostID, sid); err == nil {
+		t.Error("an alert with both a host and a service must be refused")
+	}
+	s.MarkNotified(ctx, id, "firing")
+	if err := s.EndAlertQuietly(ctx, id, t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if owed, _ := s.UnnotifiedAlerts(ctx); len(owed) != 0 {
+		t.Fatalf("a quietly ended alert owes no message: %+v", owed)
+	}
+	if a, _ := s.Alert(ctx, id); a.ResolvedAt.Unix() != t0.Add(time.Minute).Unix() || !a.EndedQuietly || a.NotifiedResolve {
+		t.Fatalf("quiet end = %+v; want ended, quietly, no resolved message", a)
+	}
+	s.CreateServiceAlert(ctx, sid, "svc_down", "", "", t0, true)
+	s.DeleteService(ctx, sid)
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM alerts WHERE service_id IS NOT NULL`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d service alerts left after deleting the service", n)
+	}
+}

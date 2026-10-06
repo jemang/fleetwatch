@@ -31,6 +31,13 @@ const (
 var Title = map[string]string{
 	KindOffline: "Agent disconnected", KindCPU: "CPU high", KindRAM: "Memory high", KindDisk: "Disk full",
 	KindStorage: "Storage inactive", KindGuest: "Guest stopped", KindService: "Service failed",
+	KindSvcDown: "Service DOWN", KindSvcSlow: "Service slow", KindSvcCert: "Certificate expiring",
+}
+
+// ResolvedTitle is the alert's name in its "resolved" message, where the
+// plain title would say the opposite of what happened.
+var ResolvedTitle = map[string]string{
+	KindOffline: "Agent connected", KindSvcDown: "Service recovered", KindSvcSlow: "Service fast again", KindSvcCert: "Certificate renewed",
 }
 
 // Rules holds how long a condition must last before its alert fires.

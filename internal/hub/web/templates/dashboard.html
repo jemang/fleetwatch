@@ -1,0 +1,53 @@
+{{define "dashpanel"}}<section class="tiles dash-tiles">
+  <div class="tile" data-tile="total"><div class="label">Services{{if .Tiles.Paused}} · {{.Tiles.Paused}} paused{{end}}</div><div class="value">{{.Tiles.Total}}</div><div class="sub"><a href="/services">all services</a></div></div>
+  <div class="tile" data-tile="online"><div class="label">Online</div><div class="value">{{.Tiles.Online}}</div><div class="sub"><span class="ok">working</span></div></div>
+  <div class="tile{{if .Tiles.Down}} bad{{end}}" data-tile="down"><div class="label">Down</div><div class="value">{{.Tiles.Down}}</div><div class="sub">{{if .Tiles.Down}}<span class="bad">need attention</span>{{else}}none{{end}}</div></div>
+  <div class="tile{{if .Tiles.Slow}} warn{{end}}" data-tile="slow"><div class="label">Slow</div><div class="value">{{.Tiles.Slow}}</div><div class="sub">{{if .Tiles.Slow}}<span class="warn">answering slowly</span>{{else}}none{{end}}</div></div>
+</section>
+<h2>Attention</h2>
+<ul class="attention">{{range .Attention}}<li data-tag="{{.Tag}}"><span class="atag">[{{.Tag}}]</span> <a href="{{.Href}}"><b>{{.Title}}</b></a><span class="atext">{{.Text}}{{if .Since}} <span data-for="{{.Since}}"></span>{{end}}{{if .After}} · {{.After}}{{end}}{{range $i, $n := .Names}}{{if $i}},{{end}} <a href="{{$n.Href}}">{{$n.Name}}</a>{{end}}</span></li>{{else}}<li class="calm">Nothing needs attention.</li>{{end}}</ul>
+<h2>Recent incidents</h2>
+{{if .Incidents}}<div class="scroll"><table class="hosts plain incidents">
+  <thead><tr><th>Service</th><th>Started</th><th>Ended</th><th>Duration</th><th>Reason</th></tr></thead>
+  <tbody>{{range .Incidents}}<tr><td><a href="/services/{{.ServiceID}}">{{.Service}}</a></td><td class="when" data-time="{{.Start}}"></td><td class="when"{{if .End}} data-time="{{.End}}"{{end}}>{{if not .End}}<b class="ongoing">ongoing</b>{{end}}</td><td>{{if .End}}{{.Duration}}{{else}}<span data-for="{{.Start}}"></span>{{end}}</td><td>{{.Reason}}</td></tr>{{end}}</tbody>
+</table></div>{{else}}<p class="none">No incidents yet.</p>{{end}}{{end}}
+
+{{define "searchresults"}}{{if .Q}}<div class="results">{{if .Services}}<h3>Services</h3><ul>{{range .Services}}<li><a href="{{.Href}}"><b>{{.Name}}</b><span>{{.Note}}</span></a></li>{{end}}</ul>{{end}}{{if .Hosts}}<h3>Hosts</h3><ul>{{range .Hosts}}<li><a href="{{.Href}}"><b>{{.Name}}</b><span>{{.Note}}</span></a></li>{{end}}</ul>{{end}}{{if not (or .Services .Hosts)}}<p class="none">Nothing matches “{{.Q}}”.</p>{{end}}</div>{{end}}{{end}}
+
+{{define "dashboard"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Dashboard"}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+<header class="top">
+  <h1><a href="/">{{template "brand"}}</a></h1>
+  <div class="search-wrap">
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input id="search" name="q" type="search" placeholder="Search..." aria-label="Search services and hosts" autocomplete="off"
+        hx-get="/search" hx-trigger="input changed delay:150ms, search" hx-sync="this:replace" hx-target="#search-results" hx-swap="innerHTML">
+      <kbd>/</kbd>
+    </label>
+    <div id="search-results" class="search-results"></div>
+  </div>
+  <div class="actions">
+    <button id="add-service" class="primary" hx-get="/services/new" hx-target="#service-body" hx-swap="innerHTML">+ Add Service</button>
+    <button id="add-server" hx-post="/servers/enroll-token" hx-target="#enroll-body" hx-swap="innerHTML">+ Add Server</button>
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <div id="dash-panel" hx-get="/dashboard/panel" hx-trigger="sse:services, sse:nav, sse:summary throttle:10s, services-saved from:body" hx-sync="this:replace" hx-swap="innerHTML">{{template "dashpanel" .DashPanel}}</div>
+  <h2>Hosts</h2>
+  <section id="summary" class="tiles" sse-swap="summary" hx-swap="innerHTML">{{template "summary" .Summary}}</section>
+</main>
+{{template "foot" .}}
+<dialog id="service-dialog"><div id="service-body"></div></dialog>
+<dialog id="enroll-dialog">
+  <div id="enroll-body"></div>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+{{template "scripts"}}
+</body>
+</html>{{end}}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -394,5 +395,290 @@ func TestServiceRoutesNeedSession(t *testing.T) {
 	}
 	if n, _ := h.st.ServiceCount(context.Background()); n != 1 {
 		t.Error("a request without session changed the services")
+	}
+}
+
+func TestCardLiveLine(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	on := h.addService("On", "http://on", "")
+	slow := h.addService("Slow", "http://slow", "")
+	down := h.addService("Down", "http://down", "")
+	busy := h.addService("Busy", "http://busy", "")
+	h.addService("New", "http://new", "")
+	h.st.SaveCheck(ctx, on, "http://on", store.CheckState{State: "online", CheckedAt: 1790000000, Ms: 84, Code: 200})
+	h.st.SaveCheck(ctx, slow, "http://slow", store.CheckState{State: "degraded", CheckedAt: 1790000000, Ms: 1842, Code: 200})
+	h.st.SaveCheck(ctx, down, "http://down", store.CheckState{State: "down", Since: 1789999520, CheckedAt: 1790000000, Error: "timeout", FailStreak: 3})
+	h.st.SaveCheck(ctx, busy, "http://busy", store.CheckState{State: "unknown", CheckedAt: 1790000000, Error: "timeout", FailStreak: 1})
+	body := h.do("GET", "/services", h.login(), nil, false).Body.String()
+	for _, want := range []string{
+		`sse-swap="svc-` + itoa(on) + `" hx-swap="innerHTML"`,
+		`<span class="st" data-state="online"><span class="dot"></span>84 ms · checked <span data-ts="1790000000"></span> · 100%</span>`,
+		`<span class="st" data-state="degraded"><span class="dot"></span>1,842 ms · slow · checked <span data-ts="1790000000"></span> · 100%</span>`,
+		`<span class="st" data-state="down" title="timeout"><span class="dot"></span><b>DOWN</b> · <span data-for="1789999520"></span> · 0%</span>`,
+		`<span class="st" data-state="unknown" title="timeout"><span class="dot"></span>checking…</span>`,
+		`<span class="st" data-state="unknown"><span class="dot"></span>not checked yet</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page is missing %q", want)
+		}
+	}
+	if !strings.Contains(body, `<a href="/services" data-nav="services">Services<span class="count bad">5</span></a>`) {
+		t.Error("the Services count must be red while a service is down")
+	}
+}
+
+func TestServiceCheckedStreamEvent(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id := h.addService("a", "http://a", "")
+	c := h.login()
+	srv := httptest.NewServer(h.mux)
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events", nil)
+	req.AddCookie(c)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Scan()
+	h.st.SaveCheck(context.Background(), id, "http://a", store.CheckState{State: "online", CheckedAt: 1790000000, Ms: 12})
+	h.bus.Publish(live.Event{Kind: live.ServiceChecked, HostID: id})
+	var event, data string
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			event = line[7:]
+		case strings.HasPrefix(line, "data: "):
+			data += line[6:]
+		case line == "" && event != "":
+			if event != "svc-"+itoa(id) || !strings.Contains(data, `data-state="online"`) || !strings.Contains(data, "12 ms") {
+				t.Errorf("event %q data %q", event, data)
+			}
+			return
+		}
+	}
+	t.Fatalf("stream ended: %v", sc.Err())
+}
+
+func TestSettingsServiceRules(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	c := h.login()
+	body := h.do("GET", "/settings", c, nil, false).Body.String()
+	for _, want := range []string{`<legend>Service checks</legend>`, `name="svc_fail_n" value="3"`, `name="svc_ok_n" value="2"`, `name="svc_slow_ms" value="1000"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page is missing %q", want)
+		}
+	}
+	f := form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", "svc_fail_n", "5", "svc_ok_n", "1", "svc_slow_ms", "250")
+	if w := h.do("POST", "/settings", c, f, false); w.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d %s", w.Code, w.Body.String())
+	}
+	s, _ := h.st.Settings(context.Background())
+	if s["svc_fail_n"] != "5" || s["svc_ok_n"] != "1" || s["svc_slow_ms"] != "250" {
+		t.Errorf("stored: %v", s)
+	}
+	for key, bad := range map[string]string{"svc_fail_n": "0", "svc_ok_n": "11", "svc_slow_ms": "50"} {
+		f := form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", key, bad)
+		if w := h.do("POST", "/settings", c, f, false); w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s=%s: %d", key, bad, w.Code)
+		}
+	}
+}
+
+// An old form without the new fields keeps what is stored.
+func TestSettingsKeepServiceRulesWhenMissing(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	h.st.SetSettings(context.Background(), map[string]string{"svc_fail_n": "4"})
+	c := h.login()
+	f := form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2")
+	if w := h.do("POST", "/settings", c, f, false); w.Code != http.StatusSeeOther {
+		t.Fatalf("save without the new fields: %d %s", w.Code, w.Body.String())
+	}
+	s, _ := h.st.Settings(context.Background())
+	if s["svc_fail_n"] != "4" || s["svc_ok_n"] != "2" || s["svc_slow_ms"] != "1000" {
+		t.Errorf("stored: %v", s)
+	}
+}
+
+func TestServiceCardShowsUptimeAndDetails(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	id := h.addService("Grafana", "https://grafana.lan", "")
+	fresh := h.addService("New", "https://new.lan", "")
+	at := h.clock.Unix()
+	h.st.SaveCheck(ctx, id, "https://grafana.lan", store.CheckState{State: "online", OK: true, CheckedAt: at - 60, Ms: 40, Code: 200})
+	h.st.SaveCheck(ctx, id, "https://grafana.lan", store.CheckState{State: "down", Since: at, CheckedAt: at, Error: "timeout", FailStreak: 3})
+	body := h.do("GET", "/services", h.login(), nil, false).Body.String()
+	for _, want := range []string{`href="/services/` + itoa(id) + `"`, `>Details<`, `· 50%`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("services page is missing %q", want)
+		}
+	}
+	card := body[strings.Index(body, `id="svc-`+itoa(fresh)+`"`):]
+	card = card[:strings.Index(card, `</span></span>`)]
+	if strings.Contains(card, "%") {
+		t.Errorf("a never-checked card shows an uptime: %s", card)
+	}
+}
+
+func stripTags(s string) string { return regexp.MustCompile(`<[^>]*>`).ReplaceAllString(s, " ") }
+
+func TestServiceDetailPage(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	host := h.addHost("pve-2")
+	u := "https://portal.lan/login?token=SECRET"
+	id, _ := h.st.CreateService(ctx, store.Service{Name: "Portal", URL: u, Description: "customer portal",
+		HostID: host, IntervalS: 60, TimeoutS: 10, Enabled: true}, h.clock)
+	at := h.clock.Unix()
+	h.st.SaveCheck(ctx, id, u, store.CheckState{State: "down", Since: at - 600, CheckedAt: at - 600, Error: "timeout", FailStreak: 3})
+	h.st.SaveCheck(ctx, id, u, store.CheckState{State: "online", OK: true, Since: at - 60, CheckedAt: at - 60, Ms: 68, Code: 200,
+		OkStreak: 2, CertExpiresAt: at + 73*86400 + 60})
+	body := h.do("GET", "/services/"+itoa(id), h.login(), nil, false).Body.String()
+	for _, want := range []string{
+		`<span class="crumb">Portal</span>`, `data-service="` + itoa(id) + `"`, `customer portal`,
+		`68 ms`, `every 60 s`, `expires in 73 days`, `href="/hosts/` + itoa(host) + `"`, `pve-2`,
+		`hx-get="/services/` + itoa(id) + `/panel"`, `sse:svc-` + itoa(id), `class="avail"`,
+		`9 min`, `timeout`, `https://portal.lan`, // incident: 540 s, its reason; the shown address
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("detail page is missing %q", want)
+		}
+	}
+	if n := strings.Count(body, `class="blk"`); n != 48 {
+		t.Errorf("availability bar has %d blocks; want 48", n)
+	}
+	if strings.Contains(stripTags(body), "SECRET") {
+		t.Error("the page text shows the URL query")
+	}
+}
+
+func TestServiceDetailPageEmptyService(t *testing.T) {
+	h := newHarness(t, "http://hub.example.com", false)
+	id := h.addService("Plain", "http://plain.lan", "")
+	rec := h.do("GET", "/services/"+itoa(id), h.login(), nil, false)
+	body := rec.Body.String()
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	for _, unwanted := range []string{"Certificate", "Hosted on", "Description"} {
+		if strings.Contains(body, "<dt>"+unwanted+"</dt>") {
+			t.Errorf("empty service shows a %q row", unwanted)
+		}
+	}
+	for _, want := range []string{"not checked yet", "No incidents in the last 90 days.", `data-state="none"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("empty service page is missing %q", want)
+		}
+	}
+}
+
+func TestServiceDetailUnknownAndPanelAndPauseBack(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	c := h.login()
+	if rec := h.do("GET", "/services/999", c, nil, false); rec.Code != 404 {
+		t.Fatalf("unknown service = %d; want 404", rec.Code)
+	}
+	id := h.addService("A", "https://a.lan", "")
+	panel := h.do("GET", "/services/"+itoa(id)+"/panel", c, nil, true).Body.String()
+	if strings.Contains(panel, "<html") || !strings.Contains(panel, `class="avail"`) {
+		t.Fatalf("panel must be the fragment with the bar: %.200s", panel)
+	}
+	rec := h.do("POST", "/services/"+itoa(id)+"/enabled", c, url.Values{"enabled": {"0"}, "back": {"detail"}}, false)
+	if loc := rec.Header().Get("Location"); loc != "/services/"+itoa(id) {
+		t.Fatalf("pause from the detail page goes to %q", loc)
+	}
+	rec = h.do("POST", "/services/"+itoa(id)+"/enabled", c, url.Values{"enabled": {"1"}}, false)
+	if loc := rec.Header().Get("Location"); loc != "/services" {
+		t.Fatalf("resume from the list goes to %q", loc)
+	}
+}
+
+func TestServiceDetailWhileDown(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	id := h.addService("Local", "http://127.0.0.1:8095", "")
+	at := h.clock.Unix()
+	h.st.SaveCheck(ctx, id, "http://127.0.0.1:8095", store.CheckState{State: "down", Since: at, CheckedAt: at, Ms: 0, Error: "connection refused", FailStreak: 3})
+	body := h.do("GET", "/services/"+itoa(id), h.login(), nil, false).Body.String()
+	if !strings.Contains(body, "<dt>Response</dt><dd>– · avg 24 h –</dd>") {
+		t.Error("a down service must not show the time it took to fail as its response time")
+	}
+	status := body[strings.Index(body, "<dt>Status</dt>"):]
+	status = status[:strings.Index(status, "</dd>")]
+	if strings.Contains(status, "%") {
+		t.Errorf("the status line repeats the uptime shown in its own row: %s", status)
+	}
+}
+
+func TestAlertsPageShowsServiceAlerts(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	id := h.addService("Grafana", "https://grafana.lan/?token=SECRET", "")
+	aid, _ := h.st.CreateServiceAlert(ctx, id, "svc_down", "", "timeout", h.clock, true)
+	c := h.login()
+	body := h.do("GET", "/alerts", c, nil, false).Body.String()
+	for _, want := range []string{`<th>Host / service</th>`, `href="/services/` + itoa(id) + `"`, `>Grafana<`, `Service DOWN`, `timeout`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("alerts page is missing %q", want)
+		}
+	}
+	page := h.do("GET", "/alerts/"+itoa(aid), c, nil, false).Body.String()
+	if !strings.Contains(page, "<dt>Service</dt>") || strings.Contains(page, "<dt>Host</dt>") || strings.Contains(stripTags(page), "SECRET") {
+		t.Errorf("alert page for a service without host: %s", stripTags(page))
+	}
+}
+
+func TestSettingsServiceAlerts(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	c := h.login()
+	body := h.do("GET", "/settings", c, nil, false).Body.String()
+	for _, want := range []string{`name="svc_cert_days" value="30, 14, 7, 1"`, `type="hidden" name="svc_slow_alert" value="0"`, `type="checkbox" name="svc_slow_alert" value="1"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page is missing %q", want)
+		}
+	}
+	base := func() url.Values {
+		return form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", "svc_fail_n", "3", "svc_ok_n", "2", "svc_slow_ms", "1000")
+	}
+	f := base()
+	f.Set("svc_cert_days", "60, 7")
+	f["svc_slow_alert"] = []string{"0", "1"}
+	if rec := h.do("POST", "/settings", c, f, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save = %d", rec.Code)
+	}
+	s, _ := h.st.Settings(context.Background())
+	if s["svc_cert_days"] != "60, 7" || s["svc_slow_alert"] != "1" {
+		t.Fatalf("saved %q %q", s["svc_cert_days"], s["svc_slow_alert"])
+	}
+	f["svc_slow_alert"] = []string{"0"}
+	h.do("POST", "/settings", c, f, false)
+	if s, _ = h.st.Settings(context.Background()); s["svc_slow_alert"] != "0" {
+		t.Fatalf("unchecked box saved %q; want 0", s["svc_slow_alert"])
+	}
+	h.st.SetSettings(context.Background(), map[string]string{"svc_slow_alert": "1"})
+	h.do("POST", "/settings", c, base(), false) // a form from before these fields
+	if s, _ = h.st.Settings(context.Background()); s["svc_slow_alert"] != "1" || s["svc_cert_days"] != "60, 7" {
+		t.Fatalf("missing fields must keep what is stored: %q %q", s["svc_slow_alert"], s["svc_cert_days"])
+	}
+	f = base()
+	f.Set("svc_cert_days", "7, 30")
+	rec := h.do("POST", "/settings", c, f, false)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "List certificate warning days from large to small") {
+		t.Fatalf("bad days: %d", rec.Code)
+	}
+}
+
+func TestQuietlyEndedAlertSaysNoMessage(t *testing.T) {
+	a := store.Alert{Kind: "svc_down", ServiceID: 3, Service: "A", PendingSince: time.Unix(100, 0), FiredAt: time.Unix(100, 0),
+		ResolvedAt: time.Unix(200, 0), NotifiedFire: true, EndedQuietly: true}
+	v := BuildAlertView(a, time.Unix(300, 0))
+	if v.FireMsg != "sent" || !strings.HasPrefix(v.ResolveMsg, "none: it ended without a message") {
+		t.Fatalf("messages = %q / %q", v.FireMsg, v.ResolveMsg)
 	}
 }

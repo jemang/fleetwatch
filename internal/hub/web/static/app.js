@@ -29,6 +29,11 @@
       var ts = Number(el.dataset.ts);
       el.textContent = ts ? ago(Math.max(0, now - ts)) : 'never';
     });
+    // How long a state has lasted: "for 8 minutes".
+    document.querySelectorAll('[data-for]').forEach(function (el) {
+      var ts = Number(el.dataset.for);
+      el.textContent = ts ? 'for ' + ago(Math.max(0, now - ts)).replace(/ ago$/, '') : '';
+    });
     if (clock) {
       var d = new Date(now * 1000);
       clock.textContent = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm(d) + ':' + pad(d.getSeconds());
@@ -116,6 +121,8 @@
         search.value = '';
         applyFilter();
         applyCardFilter();
+        var found = document.getElementById('search-results');
+        if (found) found.innerHTML = '';
         search.blur();
       }
     });
@@ -222,7 +229,19 @@
     });
   }
 
-  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); applyCardFilter(); labelCharts(); logsTick(); }
+  // Availability blocks: the time range in the viewer's time zone.
+  function barTitles() {
+    document.querySelectorAll('.avail .blk').forEach(function (b) {
+      var from = new Date(Number(b.dataset.from) * 1000), to = new Date(Number(b.dataset.to) * 1000);
+      b.title = hm(from) + '–' + hm(to) + ' · ' + (b.dataset.up || 'no checks');
+    });
+  }
+  // On a service's page an edit reloads the page; the list is not there.
+  if (document.body.dataset.service) {
+    document.body.addEventListener('services-saved', function () { location.reload(); });
+  }
+
+  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); applyCardFilter(); labelCharts(); logsTick(); barTitles(); }
   setInterval(tick, 1000);
   refresh();
   document.body.addEventListener('htmx:sseMessage', refresh);
@@ -235,7 +254,7 @@
     source.addEventListener('host-removed', function (ev) {
       var row = document.getElementById('host-' + ev.data);
       if (row) row.remove();
-      if (document.body.dataset.host === ev.data) location.href = '/';
+      if (document.body.dataset.host === ev.data) location.href = '/hosts';
       refresh();
     });
   });

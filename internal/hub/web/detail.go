@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -216,7 +217,38 @@ type chartsData struct {
 
 type hostPageData struct {
 	chrome
-	Detail HostDetail
+	Detail   HostDetail
+	Services []ServiceCard // the services whose related host this is, by name
+}
+
+// hostServices lists the services that name this host as their host.
+func (w *Web) hostServices(r *http.Request, hostID int64) ([]ServiceCard, error) {
+	list, err := w.st.Services(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	var out []ServiceCard
+	for _, sv := range list {
+		if sv.HostID == hostID {
+			out = append(out, serviceCard(sv))
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	return out, nil
+}
+
+// hostServicesFragment is the host page's service list, redrawn on changes.
+func (w *Web) hostServicesFragment(rw http.ResponseWriter, r *http.Request) {
+	h, ok := w.hostFromPath(rw, r)
+	if !ok {
+		return
+	}
+	list, err := w.hostServices(r, h.ID)
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.render(rw, http.StatusOK, "hostservices", list)
 }
 
 func (w *Web) hostFromPath(rw http.ResponseWriter, r *http.Request) (store.Host, bool) {
@@ -243,7 +275,12 @@ func (w *Web) hostPage(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	w.render(rw, http.StatusOK, "host", hostPageData{chrome: w.chrome(r, "hosts", rows), Detail: BuildDetail(h, w.now())})
+	services, err := w.hostServices(r, h.ID)
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.render(rw, http.StatusOK, "host", hostPageData{chrome: w.chrome(r, "hosts", rows), Detail: BuildDetail(h, w.now()), Services: services})
 }
 
 func (w *Web) hostCharts(rw http.ResponseWriter, r *http.Request) {

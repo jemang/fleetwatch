@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"fleetwatch/internal/hub/live"
@@ -35,6 +39,7 @@ type Engine struct {
 	Log          func(format string, args ...any)
 
 	seenRunning map[GuestKey]bool
+	outages     map[int64]outage // the latest silence of each host, while the Hub runs
 }
 
 func (e *Engine) logf(format string, args ...any) {
@@ -93,8 +98,13 @@ func (e *Engine) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var svcOpen []store.Alert
 	byKey := make(map[alertKey]store.Alert, len(open))
 	for _, a := range open {
+		if a.ServiceID != 0 {
+			svcOpen = append(svcOpen, a)
+			continue
+		}
 		byKey[alertKey{a.HostID, a.Kind, a.Subject}] = a
 	}
 	names := make(map[int64]string, len(hosts))
@@ -141,6 +151,13 @@ func (e *Engine) Tick(ctx context.Context) error {
 		changed = true
 	}
 
+	e.trackOutages(hosts, unknown, now)
+	svcChanged, err := e.tickServices(ctx, settings, svcOpen, now)
+	if err != nil {
+		return err
+	}
+	changed = changed || svcChanged
+
 	e.notify(ctx, settings, now)
 	if _, err := e.St.PruneAlerts(ctx, now.Add(-keepFor)); err != nil {
 		return err
@@ -159,6 +176,7 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 		e.logf("alerts: %v", err)
 		return
 	}
+	var hostServices map[int64][]string // filled once, only when an offline message is owed
 	for _, a := range owed {
 		resolved, dismissed := !a.ResolvedAt.IsZero(), !a.DismissedAt.IsZero()
 		event, at := "firing", a.FiredAt
@@ -175,16 +193,183 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 			e.St.MarkNotified(ctx, a.ID, "resolved")
 			continue
 		case now.Sub(at) > giveUpAfter:
-			e.logf("alerts: giving up on the %q message for %s on %s", event, a.Kind, a.Host)
+			e.logf("alerts: giving up on the %q message for %s on %s", event, a.Kind, who(a))
 			e.St.MarkNotified(ctx, a.ID, event)
 			continue
 		}
-		msg := Message{Event: event, Host: a.Host, Kind: a.Kind, Subject: a.Subject, Detail: a.Detail, Since: a.PendingSince, At: at, Hub: e.Hub}
+		msg := Message{Event: event, Host: a.Host, Kind: a.Kind, Subject: a.Subject, Detail: a.Detail, Since: a.PendingSince, At: at, Hub: e.Hub,
+			Service: a.Service, ServiceID: a.ServiceID, ServiceHost: domain(a.ServiceURL)}
+		if a.Kind == KindOffline {
+			if hostServices == nil {
+				hostServices = e.servicesByHost(ctx)
+			}
+			msg.HostServices = hostServices[a.HostID]
+		}
 		if err := e.deliver(ctx, settings, msg); err != nil {
-			e.logf("alerts: %q message for %s on %s not delivered: %v", event, a.Kind, a.Host, err)
+			e.logf("alerts: %q message for %s on %s not delivered: %v", event, a.Kind, who(a), err)
 			continue
 		}
-		e.logf("alerts: %q message for %s on %s delivered", event, a.Kind, a.Host)
+		e.logf("alerts: %q message for %s on %s delivered", event, a.Kind, who(a))
 		e.St.MarkNotified(ctx, a.ID, event)
+	}
+}
+
+type svcKey struct {
+	service       int64
+	kind, subject string
+}
+
+// tickServices raises, fires and ends the alerts of the services, as Tick does
+// for hosts. An alert whose condition is gone ends with a message only when
+// the service is fine again; otherwise the message would be false.
+func (e *Engine) tickServices(ctx context.Context, settings map[string]string, open []store.Alert, now time.Time) (bool, error) {
+	services, err := e.St.Services(ctx)
+	if err != nil {
+		return false, err
+	}
+	failN, err := strconv.Atoi(settings["svc_fail_n"])
+	if err != nil || failN < 1 {
+		failN = 3
+	}
+	byID := make(map[int64]store.Service, len(services))
+	held := map[int64]bool{}
+	for _, sv := range services {
+		byID[sv.ID] = sv
+		o, ok := e.outages[sv.HostID]
+		if heldBy(sv, o, ok, failN) {
+			held[sv.ID] = true
+		}
+	}
+	byKey := make(map[svcKey]store.Alert, len(open))
+	for _, a := range open {
+		byKey[svcKey{a.ServiceID, a.Kind, a.Subject}] = a
+	}
+	changed := false
+	wrong := map[svcKey]bool{}
+	for _, c := range EvaluateServices(services, now, ServiceRulesFrom(settings), held) {
+		key := svcKey{c.ServiceID, c.Kind, c.Subject}
+		wrong[key] = true
+		a, exists := byKey[key]
+		switch {
+		case !exists:
+			if _, err := e.St.CreateServiceAlert(ctx, c.ServiceID, c.Kind, c.Subject, c.Detail, now, c.For == 0); err != nil {
+				return changed, err
+			}
+			if c.For == 0 {
+				e.logf("alert fired: %s on service %s (%s)", c.Kind, svcName(byID[c.ServiceID]), c.Detail)
+			}
+			changed = true
+		case a.FiredAt.IsZero() && now.Sub(a.PendingSince) >= c.For:
+			if err := e.St.SetAlertDetail(ctx, a.ID, c.Detail); err != nil {
+				return changed, err
+			}
+			if err := e.St.FireAlert(ctx, a.ID, now); err != nil {
+				return changed, err
+			}
+			e.logf("alert fired: %s on service %s (%s)", c.Kind, svcName(byID[c.ServiceID]), c.Detail)
+			changed = true
+		case !a.FiredAt.IsZero() && (c.Kind == KindSvcDown || c.Kind == KindSvcCert) && a.Detail != c.Detail:
+			// The latest failure or day count, so the Alerts page says what is true now.
+			if err := e.St.SetAlertDetail(ctx, a.ID, c.Detail); err != nil {
+				return changed, err
+			}
+			changed = true
+		}
+	}
+	for key, a := range byKey {
+		if wrong[key] {
+			continue
+		}
+		sv, ok := byID[a.ServiceID]
+		if ok && held[sv.ID] && (a.Kind == KindSvcDown || a.Kind == KindSvcSlow) {
+			continue // its host's outage explains it; the alert stays as it is
+		}
+		switch {
+		case a.FiredAt.IsZero():
+			err = e.St.DeleteAlert(ctx, a.ID)
+		case ok && fineAgain(a, sv):
+			err = e.St.ResolveAlert(ctx, a.ID, now)
+			e.logf("alert resolved: %s on service %s", a.Kind, svcName(sv))
+		default:
+			err = e.St.EndAlertQuietly(ctx, a.ID, now)
+		}
+		if err != nil {
+			return changed, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+// fineAgain: the condition of an ended alert is gone because the service
+// works again, not because it was paused, re-addressed or its warning moved.
+func fineAgain(a store.Alert, sv store.Service) bool {
+	switch a.Kind {
+	case KindSvcDown:
+		return sv.State == "online" || sv.State == "degraded"
+	case KindSvcSlow:
+		return sv.State == "online"
+	case KindSvcCert:
+		return sv.Enabled && sv.CertExpiresAt != 0 && sv.CertExpiresAt != certExpiry(a.Subject)
+	}
+	return false
+}
+
+// domain is the host part of a service URL; its path and query can hold a
+// token and never appear in messages or logs.
+func domain(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Host
+	}
+	return ""
+}
+
+func svcName(sv store.Service) string { return sv.Name + " (" + domain(sv.URL) + ")" }
+
+// who names an alert's owner in log lines.
+func who(a store.Alert) string {
+	if a.ServiceID != 0 {
+		return "service " + a.Service + " (" + domain(a.ServiceURL) + ")"
+	}
+	return a.Host
+}
+
+// servicesByHost names the enabled services of each host, sorted, for the
+// host's offline message.
+func (e *Engine) servicesByHost(ctx context.Context) map[int64][]string {
+	out := map[int64][]string{}
+	services, err := e.St.Services(ctx)
+	if err != nil {
+		e.logf("alerts: %v", err)
+		return out
+	}
+	for _, sv := range services {
+		if sv.Enabled && sv.HostID != 0 {
+			out[sv.HostID] = append(out[sv.HostID], sv.Name)
+		}
+	}
+	for _, names := range out {
+		sort.Slice(names, func(i, j int) bool { return strings.ToLower(names[i]) < strings.ToLower(names[j]) })
+	}
+	return out
+}
+
+// trackOutages remembers when each host went quiet and when it came back.
+// A host that never reported has no outage: nothing it ran was ever seen.
+func (e *Engine) trackOutages(hosts []store.Host, silent map[int64]bool, now time.Time) {
+	if e.outages == nil {
+		e.outages = map[int64]outage{}
+	}
+	for _, h := range hosts {
+		o, known := e.outages[h.ID]
+		switch {
+		case silent[h.ID] && !h.LastSeen.IsZero():
+			if !known || !o.to.IsZero() {
+				e.outages[h.ID] = outage{from: h.LastSeen}
+			}
+		case known && o.to.IsZero():
+			o.to = now
+			e.outages[h.ID] = o
+		}
 	}
 }

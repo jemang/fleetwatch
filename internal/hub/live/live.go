@@ -15,6 +15,8 @@ const (
 	// ServicesChanged carries no host: a service was added, changed, removed
 	// or got its icon.
 	ServicesChanged
+	// ServiceChecked names a service (in HostID) whose latest check was saved.
+	ServiceChecked
 )
 
 type Event struct {

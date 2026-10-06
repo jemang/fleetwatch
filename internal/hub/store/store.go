@@ -129,8 +129,72 @@ var schemaV7 = []string{
 		created_at INTEGER NOT NULL)`,
 }
 
+var schemaV8 = []string{
+	// The latest check of a service and the state it led to.
+	`ALTER TABLE services ADD COLUMN state TEXT NOT NULL DEFAULT 'unknown'`,
+	`ALTER TABLE services ADD COLUMN state_since INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE services ADD COLUMN checked_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE services ADD COLUMN last_ms INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE services ADD COLUMN last_code INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE services ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE services ADD COLUMN fail_streak INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE services ADD COLUMN ok_streak INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE services ADD COLUMN cert_expires_at INTEGER NOT NULL DEFAULT 0`,
+}
+
+var schemaV9 = []string{
+	// One row per check (res 0) or per completed hour (res 3600). down counts
+	// checks taken while the service was confirmed down; ms_* only successful ones.
+	`CREATE TABLE service_checks (
+		service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+		res INTEGER NOT NULL,
+		ts INTEGER NOT NULL,
+		checks INTEGER NOT NULL,
+		down INTEGER NOT NULL,
+		ms_sum INTEGER NOT NULL,
+		ms_n INTEGER NOT NULL,
+		PRIMARY KEY (service_id, res, ts)) WITHOUT ROWID`,
+	`CREATE TABLE service_incidents (
+		id INTEGER PRIMARY KEY,
+		service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+		started_at INTEGER NOT NULL,
+		ended_at INTEGER,
+		reason TEXT NOT NULL DEFAULT '',
+		end_reason TEXT NOT NULL DEFAULT '')`,
+	// At most one open incident per service.
+	`CREATE UNIQUE INDEX service_incidents_open ON service_incidents (service_id) WHERE ended_at IS NULL`,
+	// The uptime of all services reads hourly rows and recent raw rows by time.
+	`CREATE INDEX service_checks_res_ts ON service_checks (res, ts)`,
+}
+
+var schemaV10 = []string{
+	// An alert belongs to a host or to a service. SQLite cannot drop NOT NULL,
+	// so the table is rebuilt; every row keeps its id. Nothing references alerts.
+	`CREATE TABLE alerts_new (
+		id INTEGER PRIMARY KEY,
+		host_id INTEGER REFERENCES hosts(id) ON DELETE CASCADE,
+		service_id INTEGER REFERENCES services(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL,
+		subject TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT '',
+		pending_since INTEGER NOT NULL,
+		fired_at INTEGER,
+		resolved_at INTEGER,
+		dismissed_at INTEGER,
+		notified_fire INTEGER NOT NULL DEFAULT 0,
+		notified_resolve INTEGER NOT NULL DEFAULT 0,
+		CHECK ((host_id IS NULL) != (service_id IS NULL)))`,
+	`INSERT INTO alerts_new (id, host_id, kind, subject, detail, pending_since, fired_at, resolved_at, dismissed_at, notified_fire, notified_resolve)
+		SELECT id, host_id, kind, subject, detail, pending_since, fired_at, resolved_at, dismissed_at, notified_fire, notified_resolve FROM alerts`,
+	`DROP TABLE alerts`,
+	`ALTER TABLE alerts_new RENAME TO alerts`,
+	// At most one open alert per host or service, kind and subject.
+	`CREATE UNIQUE INDEX alerts_open ON alerts (host_id, kind, subject) WHERE resolved_at IS NULL AND host_id IS NOT NULL`,
+	`CREATE UNIQUE INDEX alerts_open_service ON alerts (service_id, kind, subject) WHERE resolved_at IS NULL AND service_id IS NOT NULL`,
+}
+
 // migrations[i] takes the schema from version i to version i+1.
-var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7}
+var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10}
 
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"

@@ -136,6 +136,26 @@ func TestWebhookAndTelegram(t *testing.T) {
 	if path != "/hook" || ctype != "application/json" || body["event"] != "firing" || body["host"] != "web-01" || body["kind"] != "cpu_high" || body["detail"] != "CPU 93%" || body["hub"] != "hub.example.com" || body["at"] != float64(t0.Add(5*time.Minute).Unix()) {
 		t.Errorf("webhook request: %s %s %v", path, ctype, body)
 	}
+	if body["service"] != "" || body["service_id"] != float64(0) || body["service_host"] != "" {
+		t.Errorf("a host alert has empty service fields: %v", body)
+	}
+	if hs, ok := body["host_services"].([]any); !ok || len(hs) != 0 {
+		t.Errorf("host_services must be an empty list: %v", body["host_services"])
+	}
+	off := Message{Event: "firing", Host: "pve-2", Kind: KindOffline, HostServices: []string{"A", "B"}, Since: t0, At: t0, Hub: "h", Zone: time.UTC}
+	if err := targets[0].Send(context.Background(), off); err != nil {
+		t.Fatal(err)
+	}
+	if hs, _ := body["host_services"].([]any); len(hs) != 2 || hs[0] != "A" || !strings.Contains(off.Text(), "\nServices on this host: A, B\n") {
+		t.Errorf("offline message: %v / %q", body["host_services"], off.Text())
+	}
+	svcMsg := Message{Event: "firing", Service: "Grafana", ServiceID: 9, ServiceHost: "grafana.lan", Kind: KindSvcDown, Since: t0, At: t0, Hub: "h", Zone: time.UTC}
+	if err := targets[0].Send(context.Background(), svcMsg); err != nil {
+		t.Fatal(err)
+	}
+	if body["service"] != "Grafana" || body["service_id"] != float64(9) || body["service_host"] != "grafana.lan" || body["host"] != "" {
+		t.Errorf("service webhook body: %v", body)
+	}
 	code = http.StatusBadGateway
 	if err := targets[0].Send(context.Background(), msg); err == nil || !strings.Contains(err.Error(), "502") {
 		t.Errorf("a non-2xx answer is a failed delivery: %v", err)
@@ -190,6 +210,7 @@ type world struct {
 	ts     int64
 	events <-chan live.Event
 	logged []string
+	msgs   []Message
 }
 
 func newWorld(t *testing.T) *world {
@@ -210,7 +231,12 @@ func newWorld(t *testing.T) *world {
 			if w.fail {
 				return errors.New("target down")
 			}
-			w.sent = append(w.sent, m.Event+" "+m.Host+" "+m.Kind+" "+m.Subject)
+			w.msgs = append(w.msgs, m)
+			line := m.Event + " " + m.Host + " " + m.Kind + " " + m.Subject
+			if m.Service != "" {
+				line += " " + m.Service + " " + m.ServiceHost
+			}
+			w.sent = append(w.sent, line)
 			return nil
 		}}
 	return w

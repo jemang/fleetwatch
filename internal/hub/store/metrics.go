@@ -117,11 +117,19 @@ func (s *Store) Rollup(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-type Retention struct{ Raw, Min1, Min5, Hour1 time.Duration }
+// Retention: how long each history level is kept. Svc* are the service
+// checks: raw rows and hourly sums.
+type Retention struct{ Raw, Min1, Min5, Hour1, SvcRaw, SvcHour1 time.Duration }
 
-var DefaultRetention = Retention{Raw: 24 * time.Hour, Min1: 7 * 24 * time.Hour, Min5: 30 * 24 * time.Hour, Hour1: 365 * 24 * time.Hour}
+var DefaultRetention = Retention{Raw: 24 * time.Hour, Min1: 7 * 24 * time.Hour, Min5: 30 * 24 * time.Hour, Hour1: 365 * 24 * time.Hour,
+	SvcRaw: 7 * 24 * time.Hour, SvcHour1: 90 * 24 * time.Hour}
 
-// Prune deletes history rows older than their resolution's retention.
+// keepIncidents: closed service incidents are deleted after this, as resolved
+// host alerts are.
+const keepIncidents = 90 * 24 * time.Hour
+
+// Prune deletes history rows older than their resolution's retention, and old
+// closed service incidents.
 func (s *Store) Prune(ctx context.Context, now time.Time, r Retention) (int64, error) {
 	var total int64
 	for res, keep := range map[int]time.Duration{0: r.Raw, 60: r.Min1, 300: r.Min5, 3600: r.Hour1} {
@@ -132,7 +140,23 @@ func (s *Store) Prune(ctx context.Context, now time.Time, r Retention) (int64, e
 		n, _ := result.RowsAffected()
 		total += n
 	}
-	return total, nil
+	for res, keep := range map[int]time.Duration{0: r.SvcRaw, 3600: r.SvcHour1} {
+		if keep <= 0 {
+			continue // not configured: keep everything
+		}
+		result, err := s.db.ExecContext(ctx, `DELETE FROM service_checks WHERE res = ? AND ts < ?`, res, now.Add(-keep).Unix())
+		if err != nil {
+			return total, err
+		}
+		n, _ := result.RowsAffected()
+		total += n
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM service_incidents WHERE ended_at IS NOT NULL AND ended_at < ?`, now.Add(-keepIncidents).Unix())
+	if err != nil {
+		return total, err
+	}
+	n, _ := result.RowsAffected()
+	return total + n, nil
 }
 
 // resolutionFor picks the stored resolution for a time span and the spacing

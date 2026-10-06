@@ -20,7 +20,7 @@ agent_status() {
 wait_status() { # wait_status <online|offline> <seconds>
   local want="$1" limit="$2" start=$SECONDS page
   while (( SECONDS - start <= limit )); do
-    page="$(curl -fsS -b "$JAR" "$BASE/" || true)"
+    page="$(curl -fsS -b "$JAR" "$BASE/hosts" || true)"
     if [ "$(agent_status <<<"$page")" = "$want" ]; then
       echo "host is $want after $(( SECONDS - start ))s"
       return 0
@@ -56,7 +56,7 @@ wait_status offline 50
 $COMPOSE start agent-test
 wait_status online 30
 
-PAGE="$(curl -fsS -b "$JAR" "$BASE/")"
+PAGE="$(curl -fsS -b "$JAR" "$BASE/hosts")"
 ROWS="$(agent_status <<<"$PAGE" | wc -l | tr -d ' ')"
 [ "$ROWS" = "1" ] || { echo "FAIL: expected 1 e2e-agent row after restart, found $ROWS"; exit 1; }
 

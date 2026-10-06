@@ -1,5 +1,6 @@
-{{define "nav"}}<a href="/" data-nav="hosts">Hosts<span class="count">{{.Hosts}}</span></a>
-<a href="/services" data-nav="services">Services<span class="count">{{.Services}}</span></a>
+{{define "nav"}}<a href="/" data-nav="dashboard">Dashboard</a>
+<a href="/services" data-nav="services">Services<span class="count{{if .ServicesDown}} bad{{end}}">{{.Services}}</span></a>
+<a href="/hosts" data-nav="hosts">Hosts<span class="count">{{.Hosts}}</span></a>
 <a href="/alerts" data-nav="alerts">Alerts<span class="count{{if .Firing}} bad{{end}}">{{.Firing}}</span></a>
 <a href="/logs" data-nav="logs">Logs</a>
 <a href="/settings" data-nav="settings">Settings</a>{{end}}
@@ -18,9 +19,9 @@
 <script src="{{asset "/static/app.js"}}"></script>{{end}}
 
 {{define "alertlist"}}{{if .Alerts}}<div class="scroll"><table class="hosts plain alerts">
-  <thead><tr><th>State</th><th>Host</th><th>Alert</th><th>Since</th><th>Ended</th><th aria-label="Action"></th></tr></thead>
-  <tbody>{{range .Alerts}}<tr data-href="/alerts/{{.ID}}"><td><span class="astate" data-state="{{.State}}"><span class="dot"></span>{{.State}}</span></td><td class="mono"><a href="/hosts/{{.HostID}}">{{.Host}}</a></td><td class="what"><a href="/alerts/{{.ID}}"><b>{{.Title}}</b>{{if .Detail}}<span>{{.Detail}}</span>{{end}}</a></td><td class="when" data-time="{{.Since}}">{{.SinceText}}</td><td class="when"{{if .Ended}} data-time="{{.Ended}}"{{end}}>{{if .Ended}}{{.EndedText}}{{else}}–{{end}}</td><td class="act">{{if eq .State "firing"}}<form method="post" action="/alerts/{{.ID}}/dismiss"><button>Dismiss</button></form>{{end}}</td></tr>{{end}}</tbody>
-</table></div>{{else}}<p class="empty">No alerts. FleetWatch lists a host here when it stops reporting, runs out of CPU, memory or disk, or when a service, guest or storage fails.</p>{{end}}{{end}}
+  <thead><tr><th>State</th><th>Host / service</th><th>Alert</th><th>Since</th><th>Ended</th><th aria-label="Action"></th></tr></thead>
+  <tbody>{{range .Alerts}}<tr data-href="/alerts/{{.ID}}"><td><span class="astate" data-state="{{.State}}"><span class="dot"></span>{{.State}}</span></td><td class="mono">{{if .ServiceID}}<a href="/services/{{.ServiceID}}">{{.Service}}</a><span class="tag">service</span>{{else}}<a href="/hosts/{{.HostID}}">{{.Host}}</a>{{end}}</td><td class="what"><a href="/alerts/{{.ID}}"><b>{{.Title}}</b>{{if .Detail}}<span>{{.Detail}}</span>{{end}}</a></td><td class="when" data-time="{{.Since}}">{{.SinceText}}</td><td class="when"{{if .Ended}} data-time="{{.Ended}}"{{end}}>{{if .Ended}}{{.EndedText}}{{else}}–{{end}}</td><td class="act">{{if eq .State "firing"}}<form method="post" action="/alerts/{{.ID}}/dismiss"><button>Dismiss</button></form>{{end}}</td></tr>{{end}}</tbody>
+</table></div>{{else}}<p class="empty">No alerts. FleetWatch lists a host here when it stops reporting, runs out of CPU, memory or disk, or when a service, guest or storage fails, a web service is down, or a certificate is about to expire.</p>{{end}}{{end}}
 
 {{define "alerts"}}<!doctype html>
 <html lang="en">
@@ -40,7 +41,7 @@
 
 {{define "alert"}}<!doctype html>
 <html lang="en">
-<head>{{template "head" (print .A.Host ": " .A.Title)}}</head>
+<head>{{template "head" (print (or .A.Service .A.Host) ": " .A.Title)}}</head>
 <body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
 <header class="top">
   <h1><a href="/">{{template "brand"}}</a><span class="crumb">{{.A.Title}}</span></h1>
@@ -54,7 +55,7 @@
   <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
   <dl class="facts">
     <div><dt>State</dt><dd><span class="astate" data-state="{{.A.State}}"><span class="dot"></span>{{.A.State}}</span></dd></div>
-    <div><dt>Host</dt><dd><a href="/hosts/{{.A.HostID}}">{{.A.Host}}</a></dd></div>
+    {{if .A.ServiceID}}<div><dt>Service</dt><dd><a href="/services/{{.A.ServiceID}}">{{.A.Service}}</a></dd></div>{{if .A.Host}}<div><dt>Related host</dt><dd>{{.A.Host}}</dd></div>{{end}}{{else}}<div><dt>Host</dt><dd><a href="/hosts/{{.A.HostID}}">{{.A.Host}}</a></dd></div>{{end}}
     <div><dt>Alert</dt><dd>{{.A.Title}}</dd></div>
     <div><dt>Detail</dt><dd>{{if .A.Detail}}{{.A.Detail}}{{else}}–{{end}}</dd></div>
   </dl>
@@ -117,6 +118,21 @@
         <label for="disk_for_min">Disk full<span>minutes</span></label>
         <input id="disk_for_min" name="disk_for_min" value="{{.Form.DiskFor}}" inputmode="numeric" required>
       </div>
+    </fieldset>
+    <fieldset>
+      <legend>Service checks</legend>
+      <p class="hint">One failed check is not an outage: a service is down only after this many failures in a row, and back after this many successes. Alerts go out when a service is down and when its certificate expires within the warning days.</p>
+      <div class="waits">
+        <label for="svc_fail_n">Failures before down<span>checks in a row</span></label>
+        <input id="svc_fail_n" name="svc_fail_n" value="{{.Form.SvcFail}}" inputmode="numeric" required>
+        <label for="svc_ok_n">Successes to recover<span>checks in a row</span></label>
+        <input id="svc_ok_n" name="svc_ok_n" value="{{.Form.SvcOk}}" inputmode="numeric" required>
+        <label for="svc_slow_ms">Slow above<span>milliseconds</span></label>
+        <input id="svc_slow_ms" name="svc_slow_ms" value="{{.Form.SvcSlow}}" inputmode="numeric" required>
+        <label for="svc_cert_days">Certificate warning<span>days, large to small</span></label>
+        <input id="svc_cert_days" name="svc_cert_days" value="{{.Form.SvcCertDays}}" required>
+      </div>
+      <label class="check svc-slow-alert"><input type="hidden" name="svc_slow_alert" value="0"><input type="checkbox" name="svc_slow_alert" value="1"{{if .Form.SvcSlowAlert}} checked{{end}}> Alert when a service is slow for 5 minutes</label>
     </fieldset>
     <div class="formfoot">
       <button class="primary">Save settings</button>

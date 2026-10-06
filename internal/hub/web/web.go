@@ -130,9 +130,13 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", w.loginPage)
 	mux.HandleFunc("POST /login", w.loginSubmit)
 	mux.HandleFunc("POST /logout", w.requireSession(w.logout))
-	mux.HandleFunc("GET /{$}", w.requireSession(w.hostsPage))
+	mux.HandleFunc("GET /{$}", w.requireSession(w.dashboardPage))
+	mux.HandleFunc("GET /dashboard/panel", w.requireSession(w.dashboardPanel))
+	mux.HandleFunc("GET /search", w.requireSession(w.search))
+	mux.HandleFunc("GET /hosts", w.requireSession(w.hostsPage))
 	mux.HandleFunc("GET /hosts/{id}", w.requireSession(w.hostPage))
 	mux.HandleFunc("GET /hosts/{id}/charts", w.requireSession(w.hostCharts))
+	mux.HandleFunc("GET /hosts/{id}/services", w.requireSession(w.hostServicesFragment))
 	mux.HandleFunc("POST /hosts/{id}/credential", w.requireSession(w.replaceCredential))
 	mux.HandleFunc("POST /hosts/{id}/label", w.requireSession(w.setHostLabel))
 	mux.HandleFunc("POST /hosts/{id}/agent", w.requireSession(w.setAgentDisabled))
@@ -144,6 +148,8 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /services", w.requireSession(w.servicesPage))
 	mux.HandleFunc("GET /services/list", w.requireSession(w.serviceList))
 	mux.HandleFunc("GET /services/new", w.requireSession(w.serviceNew))
+	mux.HandleFunc("GET /services/{id}", w.requireSession(w.servicePage))
+	mux.HandleFunc("GET /services/{id}/panel", w.requireSession(w.servicePanel))
 	mux.HandleFunc("GET /services/{id}/edit", w.requireSession(w.serviceEdit))
 	mux.HandleFunc("POST /services", w.requireSession(w.serviceCreate))
 	mux.HandleFunc("POST /services/{id}", w.requireSession(w.serviceUpdate))
@@ -203,7 +209,7 @@ var sortHeads = []sortHead{
 	{"Disk", "num", false}, {"Guests", "num", false}, {"Uptime", "num", false}, {"Status", "num", false}, {"Last report", "num", false},
 }
 
-type navData struct{ Hosts, Services, Firing int }
+type navData struct{ Hosts, Services, ServicesDown, Firing int }
 
 // chrome is what every signed-in page needs around its content: the menu,
 // the footer and the Hub clock.
@@ -219,7 +225,8 @@ type chrome struct {
 func (w *Web) nav(r *http.Request, hosts int) navData {
 	firing, _ := w.st.FiringCount(r.Context())
 	services, _ := w.st.ServiceCount(r.Context())
-	return navData{Hosts: hosts, Services: services, Firing: firing}
+	down, _ := w.st.ServicesDownCount(r.Context())
+	return navData{Hosts: hosts, Services: services, ServicesDown: down, Firing: firing}
 }
 
 func (w *Web) chrome(r *http.Request, page string, rows []HostRow) chrome {
@@ -355,7 +362,7 @@ func (w *Web) deleteHost(rw http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("server %s removed", h.Name)
 	w.bus.Publish(live.Event{Kind: live.HostRemoved, HostID: h.ID})
-	http.Redirect(rw, r, "/", http.StatusSeeOther)
+	http.Redirect(rw, r, "/hosts", http.StatusSeeOther)
 }
 
 // writeSSE writes one event. Every line of data needs its own "data:" prefix.
@@ -442,6 +449,17 @@ func (w *Web) writeHostEvent(rw io.Writer, r *http.Request, ev live.Event, watch
 	switch ev.Kind {
 	case live.AlertsChanged:
 		w.writeNav(rw, r)
+		return
+	case live.ServiceChecked:
+		// Only the card's status line is redrawn; its menu stays as it is.
+		if sv, err := w.st.Service(r.Context(), ev.HostID); err == nil {
+			c := serviceCard(sv)
+			st, _ := w.st.CheckStatsFor(r.Context(), sv.ID, store.HourStart(w.now().Add(-uptimeSpan)))
+			c.Uptime = uptimeText(st)
+			if html, err := w.renderString("svclive", c); err == nil {
+				writeSSE(rw, "svc-"+strconv.FormatInt(sv.ID, 10), html)
+			}
+		}
 		return
 	case live.ServicesChanged:
 		writeSSE(rw, "services", "changed")

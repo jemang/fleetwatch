@@ -16,6 +16,9 @@ import (
 	"fleetwatch/internal/hub/svcicon"
 )
 
+// uptimeSpan is the uptime a card shows.
+const uptimeSpan = 30 * 24 * time.Hour
+
 type servicesData struct {
 	chrome
 	Groups []ServiceGroup
@@ -26,7 +29,11 @@ func (w *Web) serviceGroups(r *http.Request) ([]ServiceGroup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BuildServiceGroups(list), nil
+	stats, err := w.st.CheckStatsAll(r.Context(), store.HourStart(w.now().Add(-uptimeSpan)))
+	if err != nil {
+		return nil, err
+	}
+	return BuildServiceGroups(list, stats), nil
 }
 
 func (w *Web) servicesPage(rw http.ResponseWriter, r *http.Request) {
@@ -261,7 +268,11 @@ func (w *Web) serviceEnabled(rw http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("service %s (%s) %s", sv.Name, urlHost(sv.URL), what)
 	w.bus.Publish(live.Event{Kind: live.ServicesChanged})
-	http.Redirect(rw, r, "/services", http.StatusSeeOther)
+	back := "/services"
+	if r.PostFormValue("back") == "detail" {
+		back = "/services/" + strconv.FormatInt(sv.ID, 10)
+	}
+	http.Redirect(rw, r, back, http.StatusSeeOther)
 }
 
 func (w *Web) serviceDelete(rw http.ResponseWriter, r *http.Request) {

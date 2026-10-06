@@ -81,6 +81,7 @@ func Fetch(ctx context.Context, pageURL string, o Options) ([]byte, string, erro
 		return nil, "", errors.New("the URL has no host")
 	}
 	c := Client(o)
+	defer c.CloseIdleConnections()
 	var tried []string
 	body, resp, err := get(ctx, c, pageURL, maxPage)
 	if resp != nil {

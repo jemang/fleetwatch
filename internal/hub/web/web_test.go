@@ -185,12 +185,12 @@ func TestSessionIsRequired(t *testing.T) {
 func TestHostsPage(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	c := h.login()
-	body := h.do("GET", "/", c, nil, false).Body.String()
+	body := h.do("GET", "/hosts", c, nil, false).Body.String()
 	if !strings.Contains(body, `id="empty"`) || strings.Contains(body, `<tr id="host-`) {
 		t.Error("with no hosts the page shows the empty state and no rows")
 	}
 	id := h.addHost(`<img src=x onerror=alert(1)>`)
-	body = h.do("GET", "/", c, nil, false).Body.String()
+	body = h.do("GET", "/hosts", c, nil, false).Body.String()
 	if strings.Contains(body, "<img src=x") || !strings.Contains(body, "&lt;img src=x") {
 		t.Error("agent-supplied host name must be HTML-escaped")
 	}
@@ -296,7 +296,7 @@ func TestDisableAndEnableAgent(t *testing.T) {
 	if strings.Contains(body, `<span class="pct">12%</span>`) {
 		t.Error("a disabled host shows no current usage")
 	}
-	list := h.do("GET", "/", c, nil, false).Body.String()
+	list := h.do("GET", "/hosts", c, nil, false).Body.String()
 	if !strings.Contains(list, `data-status="disabled"`) || !strings.Contains(list, "1 disabled") || !strings.Contains(list, `<span>0 offline</span>`) {
 		t.Error("the list must show the host as disabled and not count it as offline")
 	}
@@ -388,7 +388,7 @@ func TestGuestsColumnOnTheList(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	h.addRichHost("pve-01")
 	h.addHost("plain")
-	body := h.do("GET", "/", h.login(), nil, false).Body.String()
+	body := h.do("GET", "/hosts", h.login(), nil, false).Body.String()
 	for _, want := range []string{`>Guests<`, `<td class="guests" data-v="2">1 / 2</td>`, `<td class="guests" data-v="">–</td>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("host list is missing %q", want)
@@ -436,7 +436,7 @@ func TestTilesShowTrendOnlyWithHistory(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	id := h.addRichHost("web-01")
 	c := h.login()
-	if body := h.do("GET", "/", c, nil, false).Body.String(); strings.Contains(body, `class="spark"`) {
+	if body := h.do("GET", "/hosts", c, nil, false).Body.String(); strings.Contains(body, `class="spark"`) {
 		t.Error("no trend line without history")
 	}
 	for i := int64(0); i < 10; i++ {
@@ -496,7 +496,7 @@ func TestMenuOnEveryPageWithCounts(t *testing.T) {
 	h.st.CreateAlert(ctx, id, "cpu_high", "", "CPU 95%", h.clock, true)
 	h.st.CreateAlert(ctx, id, "ram_high", "", "memory 95%", h.clock, false)
 	c := h.login()
-	for path, page := range map[string]string{"/": "hosts", "/hosts/1": "hosts", "/alerts": "alerts", "/logs": "logs", "/settings": "settings", "/services": "services"} {
+	for path, page := range map[string]string{"/": "dashboard", "/hosts": "hosts", "/hosts/1": "hosts", "/alerts": "alerts", "/logs": "logs", "/settings": "settings", "/services": "services"} {
 		w := h.do("GET", path, c, nil, false)
 		body := w.Body.String()
 		if w.Code != http.StatusOK {
@@ -504,7 +504,8 @@ func TestMenuOnEveryPageWithCounts(t *testing.T) {
 			continue
 		}
 		for _, want := range []string{`data-page="` + page + `"`, `<nav id="nav" class="side"`, `sse-swap="nav"`,
-			`<a href="/" data-nav="hosts">Hosts<span class="count">2</span></a>`,
+			`<a href="/" data-nav="dashboard">Dashboard</a>`,
+			`<a href="/hosts" data-nav="hosts">Hosts<span class="count">2</span></a>`,
 			`<a href="/services" data-nav="services">Services<span class="count">0</span></a>`,
 			`<a href="/alerts" data-nav="alerts">Alerts<span class="count bad">1</span></a>`,
 			`<a href="/logs" data-nav="logs">Logs</a>`,
@@ -841,7 +842,7 @@ func TestRenameHost(t *testing.T) {
 	if body := h.do("GET", page, c, nil, false).Body.String(); !strings.Contains(body, `<span class="crumb">pve-office</span>`) || !strings.Contains(body, `value="pve-office"`) {
 		t.Error("host page must show the new name")
 	}
-	list := h.do("GET", "/", c, nil, false).Body.String()
+	list := h.do("GET", "/hosts", c, nil, false).Body.String()
 	if !strings.Contains(list, `data-v="pve-office"><a href="`+page+`">pve-office</a><small class="hostname">pve</small>`) {
 		t.Error("the list must show the name with the hostname under it")
 	}
@@ -849,7 +850,7 @@ func TestRenameHost(t *testing.T) {
 		t.Error("rename must be logged")
 	}
 	h.do("POST", page+"/label", c, url.Values{"label": {""}}, false)
-	if list := h.do("GET", "/", c, nil, false).Body.String(); strings.Contains(list, `class="hostname"`) {
+	if list := h.do("GET", "/hosts", c, nil, false).Body.String(); strings.Contains(list, `class="hostname"`) {
 		t.Error("without a name the list shows only the hostname")
 	}
 }

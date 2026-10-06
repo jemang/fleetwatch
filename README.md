@@ -32,6 +32,7 @@ Open the public URL and log in with the password. Data lives in the Docker volum
 | `FLEETWATCH_TLS_CERT`, `FLEETWATCH_TLS_KEY` | serve HTTPS directly (otherwise put a reverse proxy in front) | – |
 | `FLEETWATCH_TRUSTED_PROXIES` | addresses or networks of a reverse proxy, comma-separated; `X-Forwarded-For` is believed only from them | – |
 | `FLEETWATCH_RETENTION_RAW`, `_1M`, `_5M`, `_1H` | how long history is kept, as hours (for example `168h`) | 24 hours, 7 days, 30 days, 365 days |
+| `FLEETWATCH_RETENTION_SVC_RAW`, `_SVC_1H` | how long service checks are kept, each check and the hourly sums used for 30-day uptime, as hours | 7 days, 90 days |
 
 Use HTTPS for anything outside a trusted network: over plain HTTP the agent credential travels unencrypted.
 

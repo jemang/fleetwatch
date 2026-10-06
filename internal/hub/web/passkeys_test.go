@@ -183,7 +183,7 @@ func TestRemoveHost(t *testing.T) {
 	}
 	events, cancel := h.bus.Subscribe()
 	defer cancel()
-	if w := h.do("POST", page+"/delete", c, nil, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" {
+	if w := h.do("POST", page+"/delete", c, nil, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/hosts" {
 		t.Fatalf("delete: %d %q", w.Code, w.Header().Get("Location"))
 	}
 	if ev := <-events; ev.Kind != live.HostRemoved || ev.HostID != id {

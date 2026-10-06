@@ -1,0 +1,49 @@
+{{define "svcpanel"}}<dl class="facts svc-facts">
+  <div><dt>Status</dt><dd>{{template "svclive" .C}}{{if .C.Reason}}<span class="why">{{.C.Reason}}</span>{{end}}</dd></div>
+  <div><dt>Response</dt><dd>{{if and .S.CheckedAt (ne .C.State "down")}}{{.C.MsText}}{{else}}–{{end}} · avg 24 h {{.Avg24}}</dd></div>
+  <div><dt>Last check</dt><dd>{{if .S.CheckedAt}}<span data-ts="{{.S.CheckedAt}}"></span>{{else}}never{{end}} · every {{.S.IntervalS}} s</dd></div>
+  <div><dt>Uptime</dt><dd>24 h {{.Up24}} · 7 d {{.Up7}} · 30 d {{.Up30}}</dd></div>
+  {{if .Cert.Show}}<div><dt>Certificate</dt><dd class="cert"{{if .Cert.Level}} data-level="{{.Cert.Level}}"{{end}}>{{.Cert.Text}}</dd></div>{{end}}
+  {{if .S.HostID}}<div><dt>Hosted on</dt><dd><a href="/hosts/{{.S.HostID}}">{{.S.Host}}</a>{{if .HostOffline}} <span class="offline">· offline</span>{{end}}</dd></div>{{end}}
+  {{if .S.Description}}<div><dt>Description</dt><dd>{{.S.Description}}</dd></div>{{end}}
+</dl>
+<h2>Availability, 24 hours</h2>
+<div class="avail">{{range .Bar}}<span class="blk" data-state="{{.State}}" data-from="{{.From}}" data-to="{{.To}}" data-up="{{.Up}}"></span>{{end}}</div>
+<div class="avail-scale"><span>24 h ago</span><span>now</span></div>
+<h2>Recent incidents</h2>
+{{if .Incidents}}<div class="scroll"><table class="hosts plain incidents">
+  <thead><tr><th>Started</th><th>Ended</th><th>Duration</th><th>Reason</th></tr></thead>
+  <tbody>{{range .Incidents}}<tr><td class="when" data-time="{{.Start}}"></td><td class="when"{{if .End}} data-time="{{.End}}"{{end}}>{{if not .End}}<b class="ongoing">ongoing</b>{{end}}</td><td>{{if .End}}{{.Duration}}{{else}}<span data-for="{{.Start}}"></span>{{end}}</td><td>{{.Reason}}{{if .EndReason}} <span class="muted">· ended: {{.EndReason}}</span>{{end}}</td></tr>{{end}}</tbody>
+</table></div>{{else}}<p class="none">No incidents in the last 90 days.</p>{{end}}{{end}}
+
+{{define "service"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" .S.Name}}</head>
+<body data-page="{{.Page}}" data-service="{{.S.ID}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+<header class="top">
+  <h1><a href="/">{{template "brand"}}</a><span class="crumb">{{.S.Name}}</span></h1>
+  <div class="actions">
+    <a class="button" href="/services">All services</a>
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <section class="svc-head">
+    {{if .C.IconURL}}<img src="{{.C.IconURL}}" alt="" width="40" height="40">{{else}}<span class="letter" aria-hidden="true">{{.C.Letter}}</span>{{end}}
+    <div class="who"><div class="name">{{.S.Name}}{{if .S.Group}} <span class="grp">{{.S.Group}}</span>{{end}}</div><div class="mono url">{{.ShownURL}}</div></div>
+    <div class="acts">
+      <a class="button primary" href="{{.S.URL}}" target="_blank" rel="noopener noreferrer">Open</a>
+      <button type="button" hx-get="/services/{{.S.ID}}/edit" hx-target="#service-body" hx-swap="innerHTML">Edit</button>
+      <form method="post" action="/services/{{.S.ID}}/enabled"><input type="hidden" name="enabled" value="{{if .C.Paused}}1{{else}}0{{end}}"><input type="hidden" name="back" value="detail"><button>{{if .C.Paused}}Resume{{else}}Pause{{end}}</button></form>
+      <form method="post" action="/services/{{.S.ID}}/delete" data-confirm="Delete {{.S.Name}}? It is removed from FleetWatch only; the application itself is not touched."><button class="danger">Delete</button></form>
+    </div>
+  </section>
+  <div id="svc-panel" hx-get="/services/{{.S.ID}}/panel" hx-trigger="sse:svc-{{.S.ID}}, sse:services" hx-swap="innerHTML">{{template "svcpanel" .}}</div>
+</main>
+{{template "foot" .}}
+<dialog id="service-dialog"><div id="service-body"></div></dialog>
+{{template "scripts"}}
+</body>
+</html>{{end}}

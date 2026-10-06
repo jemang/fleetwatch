@@ -12,8 +12,13 @@ import (
 
 // Message is one notification. Event is "firing", "resolved" or "test".
 // Zone is the time zone of the times in Text; nil is the Hub's local zone.
+// Service and ServiceHost (the URL's domain only) are set for a service
+// alert; Host is then the service's related host, or "".
 type Message struct {
 	Event, Host, Kind, Subject, Detail string
+	Service, ServiceHost               string
+	ServiceID                          int64
+	HostServices                       []string // host offline: the host's services, by name
 	Since, At                          time.Time
 	Hub                                string
 	Zone                               *time.Location
@@ -35,11 +40,21 @@ func (m Message) Text() string {
 	state := "Firing"
 	if m.Event == "resolved" {
 		state = "Resolved"
-		if m.Kind == KindOffline {
-			title = "Agent connected"
+		if rt := ResolvedTitle[m.Kind]; rt != "" {
+			title = rt
 		}
 	}
-	lines := []string{"[FleetWatch] " + state, "Host: " + m.Host, "Alert: " + title, "Since: " + m.stamp(m.Since)}
+	lines := []string{"[FleetWatch] " + state}
+	if m.Service != "" {
+		lines = append(lines, "Service: "+m.Service+" ("+m.ServiceHost+")")
+	}
+	if m.Service == "" || m.Host != "" {
+		lines = append(lines, "Host: "+m.Host)
+	}
+	if len(m.HostServices) > 0 {
+		lines = append(lines, "Services on this host: "+strings.Join(m.HostServices, ", "))
+	}
+	lines = append(lines, "Alert: "+title, "Since: "+m.stamp(m.Since))
 	if m.Event == "resolved" {
 		lines = append(lines, "Ended: "+m.stamp(m.At)+" (after "+Lasted(m.At.Sub(m.Since))+")")
 	}
@@ -110,6 +125,7 @@ func Targets(settings map[string]string, telegramBase string) []Target {
 			return postJSON(ctx, url, map[string]any{
 				"event": m.Event, "host": m.Host, "kind": m.Kind, "subject": m.Subject, "detail": m.Detail,
 				"since": m.Since.Unix(), "at": m.At.Unix(), "hub": m.Hub, "text": m.Text(),
+				"service": m.Service, "service_id": m.ServiceID, "service_host": m.ServiceHost, "host_services": append([]string{}, m.HostServices...),
 			})
 		}})
 	}

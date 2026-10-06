@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ const resolvedShown = 100
 
 type AlertRow struct {
 	ID, HostID                 int64
+	ServiceID                  int64 // set for a service alert; HostID is then 0
+	Service                    string
 	Host, Title, Detail, State string
 	Since, Ended               int64
 	SinceText, EndedText       string
@@ -39,7 +42,7 @@ func BuildAlertRows(alerts []store.Alert) []AlertRow {
 		if title == "" {
 			title = a.Kind
 		}
-		rows[i] = AlertRow{ID: a.ID, HostID: a.HostID, Host: a.Host, Title: title, Detail: a.Detail, State: a.State(),
+		rows[i] = AlertRow{ID: a.ID, HostID: a.HostID, ServiceID: a.ServiceID, Service: a.Service, Host: a.Host, Title: title, Detail: a.Detail, State: a.State(),
 			Since: a.PendingSince.Unix(), SinceText: timeText(a.PendingSince)}
 		if !a.ResolvedAt.IsZero() {
 			rows[i].Ended, rows[i].EndedText = a.ResolvedAt.Unix(), timeText(a.ResolvedAt)
@@ -91,6 +94,8 @@ func BuildAlertView(a store.Alert, now time.Time) AlertView {
 		switch {
 		case dismissed:
 			v.ResolveMsg = "none: the alert was dismissed"
+		case a.EndedQuietly:
+			v.ResolveMsg = "none: it ended without a message, because the service was paused, got a new address, or its warning moved on"
 		case resolved && a.NotifiedResolve:
 			v.ResolveMsg = "sent"
 		case resolved:
@@ -166,6 +171,8 @@ func (w *Web) dismissAlert(rw http.ResponseWriter, r *http.Request) {
 type settingsForm struct {
 	ChatID                                string
 	OfflineAfter, CPUFor, RAMFor, DiskFor string
+	SvcFail, SvcOk, SvcSlow, SvcCertDays  string
+	SvcSlowAlert                          bool
 	TokenStored                           bool
 	WebhookHost                           string // empty when no webhook is stored
 }
@@ -196,7 +203,9 @@ func formFromSettings(s map[string]string) settingsForm {
 		return def
 	}
 	f := settingsForm{ChatID: s["telegram_chat_id"], TokenStored: s["telegram_token"] != "",
-		OfflineAfter: or("offline_after_s", "60"), CPUFor: or("cpu_for_min", "5"), RAMFor: or("ram_for_min", "5"), DiskFor: or("disk_for_min", "2")}
+		OfflineAfter: or("offline_after_s", "60"), CPUFor: or("cpu_for_min", "5"), RAMFor: or("ram_for_min", "5"), DiskFor: or("disk_for_min", "2"),
+		SvcFail: or("svc_fail_n", "3"), SvcOk: or("svc_ok_n", "2"), SvcSlow: or("svc_slow_ms", "1000"),
+		SvcCertDays: or("svc_cert_days", "30, 14, 7, 1"), SvcSlowAlert: s["svc_slow_alert"] == "1"}
 	if s["webhook_url"] != "" {
 		f.WebhookHost = hostOf(s["webhook_url"])
 	}
@@ -251,6 +260,21 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 	if s["webhook_url"] != "" {
 		form.WebhookHost = hostOf(s["webhook_url"])
 	}
+	// A form from before these fields existed keeps what is stored.
+	stored := formFromSettings(s)
+	pick := func(key, cur string) string {
+		if v := strings.TrimSpace(r.PostFormValue(key)); v != "" {
+			return v
+		}
+		return cur
+	}
+	form.SvcFail, form.SvcOk, form.SvcSlow = pick("svc_fail_n", stored.SvcFail), pick("svc_ok_n", stored.SvcOk), pick("svc_slow_ms", stored.SvcSlow)
+	form.SvcCertDays = pick("svc_cert_days", stored.SvcCertDays)
+	// The checkbox follows a hidden "0", so an unchecked box still arrives.
+	form.SvcSlowAlert = stored.SvcSlowAlert
+	if vals, sent := r.PostForm["svc_slow_alert"]; sent {
+		form.SvcSlowAlert = slices.Contains(vals, "1")
+	}
 	token := r.PostFormValue("telegram_token")
 	webhook := strings.TrimSpace(r.PostFormValue("webhook_url"))
 
@@ -275,13 +299,29 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 			errs = append(errs, f.label+": enter a whole number of minutes from 0 to 1440.")
 		}
 	}
+	if !wholeNumber(form.SvcFail, 1, 10) {
+		errs = append(errs, "Failures before down: enter a whole number from 1 to 10.")
+	}
+	if !wholeNumber(form.SvcOk, 1, 10) {
+		errs = append(errs, "Successes to recover: enter a whole number from 1 to 10.")
+	}
+	if !wholeNumber(form.SvcSlow, 100, 60000) {
+		errs = append(errs, "Slow above: enter a whole number of milliseconds from 100 to 60000.")
+	}
+	if _, ok := alert.ParseCertDays(form.SvcCertDays); !ok {
+		errs = append(errs, "List certificate warning days from large to small, for example 30, 14, 7, 1.")
+	}
 	if len(errs) > 0 {
 		w.renderSettings(rw, r, http.StatusUnprocessableEntity, form, errs, false)
 		return
 	}
 
 	values := map[string]string{"telegram_chat_id": form.ChatID, "offline_after_s": form.OfflineAfter,
-		"cpu_for_min": form.CPUFor, "ram_for_min": form.RAMFor, "disk_for_min": form.DiskFor}
+		"cpu_for_min": form.CPUFor, "ram_for_min": form.RAMFor, "disk_for_min": form.DiskFor,
+		"svc_fail_n": form.SvcFail, "svc_ok_n": form.SvcOk, "svc_slow_ms": form.SvcSlow, "svc_cert_days": form.SvcCertDays, "svc_slow_alert": "0"}
+	if form.SvcSlowAlert {
+		values["svc_slow_alert"] = "1"
+	}
 	// An empty secret field keeps what is stored; the clear box removes it.
 	switch {
 	case r.PostFormValue("clear_webhook_url") != "":
