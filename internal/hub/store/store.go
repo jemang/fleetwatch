@@ -109,8 +109,28 @@ var schemaV6 = []string{
 	`ALTER TABLE hosts ADD COLUMN label TEXT NOT NULL DEFAULT ''`,
 }
 
+var schemaV7 = []string{
+	// A web application the owner opens and, later, checks.
+	`CREATE TABLE services (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		url TEXT NOT NULL,
+		grp TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		host_id INTEGER REFERENCES hosts(id) ON DELETE SET NULL,
+		interval_s INTEGER NOT NULL DEFAULT 60,
+		timeout_s INTEGER NOT NULL DEFAULT 10,
+		expected_status INTEGER NOT NULL DEFAULT 0,
+		accept_selfsigned INTEGER NOT NULL DEFAULT 0,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		icon BLOB,
+		icon_type TEXT NOT NULL DEFAULT '',
+		icon_at INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL)`,
+}
+
 // migrations[i] takes the schema from version i to version i+1.
-var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6}
+var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7}
 
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"

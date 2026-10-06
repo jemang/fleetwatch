@@ -129,7 +129,7 @@ func (b *Buffer) Text() string {
 }
 
 var (
-	problemWords = regexp.MustCompile(`(?i)\b(?:error|failed|refused|rejected|missing|panic)\b|not delivered|giving up`)
+	problemWords = regexp.MustCompile(`(?i)\b(?:error|failed|refused|rejected|missing|panic)\b|not delivered|not fetched|giving up`)
 	// A request line: method, path, status, duration.
 	failedRequest = regexp.MustCompile(`^[A-Z]+ \S+ (?:429|5\d\d) `)
 )

@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
@@ -22,6 +23,7 @@ import (
 	"fleetwatch/internal/hub/live"
 	"fleetwatch/internal/hub/logbuf"
 	"fleetwatch/internal/hub/store"
+	"fleetwatch/internal/hub/svcicon"
 	"fleetwatch/internal/version"
 )
 
@@ -55,6 +57,10 @@ type Web struct {
 	wa         *webauthn.WebAuthn
 	cerMu      sync.Mutex
 	ceremonies map[string]ceremony
+
+	// iconFetch loads a service's icon; tests replace it.
+	iconFetch func(ctx context.Context, pageURL string, o svcicon.Options) ([]byte, string, error)
+	bg        sync.WaitGroup // icon fetches in flight
 
 	sparkMu sync.Mutex
 	sparkAt time.Time
@@ -109,7 +115,7 @@ func New(st *store.Store, bus *live.Bus, logs *logbuf.Buffer, now func() time.Ti
 		return nil, err
 	}
 	return &Web{st: st, bus: bus, logs: logs, now: now, publicURL: strings.TrimRight(publicURL, "/"), promptHost: HubName(publicURL), secure: secure,
-		loginLimit: limit.New(5, time.Minute, now), tmpl: tmpl, wa: passkeyRelyingParty(publicURL), ceremonies: map[string]ceremony{}}, nil
+		loginLimit: limit.New(5, time.Minute, now), tmpl: tmpl, wa: passkeyRelyingParty(publicURL), ceremonies: map[string]ceremony{}, iconFetch: svcicon.Fetch}, nil
 }
 
 // HubName is how this Hub names itself in the prompt line and in messages.
@@ -135,6 +141,16 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /alerts", w.requireSession(w.alertsPage))
 	mux.HandleFunc("GET /alerts/{id}", w.requireSession(w.alertPage))
 	mux.HandleFunc("POST /alerts/{id}/dismiss", w.requireSession(w.dismissAlert))
+	mux.HandleFunc("GET /services", w.requireSession(w.servicesPage))
+	mux.HandleFunc("GET /services/list", w.requireSession(w.serviceList))
+	mux.HandleFunc("GET /services/new", w.requireSession(w.serviceNew))
+	mux.HandleFunc("GET /services/{id}/edit", w.requireSession(w.serviceEdit))
+	mux.HandleFunc("POST /services", w.requireSession(w.serviceCreate))
+	mux.HandleFunc("POST /services/{id}", w.requireSession(w.serviceUpdate))
+	mux.HandleFunc("POST /services/{id}/enabled", w.requireSession(w.serviceEnabled))
+	mux.HandleFunc("POST /services/{id}/delete", w.requireSession(w.serviceDelete))
+	mux.HandleFunc("POST /services/{id}/icon", w.requireSession(w.serviceIconRefresh))
+	mux.HandleFunc("GET /services/{id}/icon", w.requireSession(w.serviceIcon))
 	mux.HandleFunc("GET /logs", w.requireSession(w.logsPage))
 	mux.HandleFunc("GET /logs.txt", w.requireSession(w.logsText))
 	mux.HandleFunc("GET /settings", w.requireSession(w.settingsPage))
@@ -187,7 +203,7 @@ var sortHeads = []sortHead{
 	{"Disk", "num", false}, {"Guests", "num", false}, {"Uptime", "num", false}, {"Status", "num", false}, {"Last report", "num", false},
 }
 
-type navData struct{ Hosts, Firing int }
+type navData struct{ Hosts, Services, Firing int }
 
 // chrome is what every signed-in page needs around its content: the menu,
 // the footer and the Hub clock.
@@ -202,7 +218,8 @@ type chrome struct {
 
 func (w *Web) nav(r *http.Request, hosts int) navData {
 	firing, _ := w.st.FiringCount(r.Context())
-	return navData{Hosts: hosts, Firing: firing}
+	services, _ := w.st.ServiceCount(r.Context())
+	return navData{Hosts: hosts, Services: services, Firing: firing}
 }
 
 func (w *Web) chrome(r *http.Request, page string, rows []HostRow) chrome {
@@ -392,8 +409,8 @@ func (w *Web) events(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeNav sends the menu. Its counts change only when a host is added or an
-// alert changes.
+// writeNav sends the menu. Its counts change only when a host is added, an
+// alert changes or the services change.
 func (w *Web) writeNav(rw io.Writer, r *http.Request) {
 	hosts, err := w.st.Hosts(r.Context())
 	if err != nil {
@@ -424,6 +441,10 @@ func (w *Web) writeFleet(rw io.Writer, r *http.Request) {
 func (w *Web) writeHostEvent(rw io.Writer, r *http.Request, ev live.Event, watch int64) {
 	switch ev.Kind {
 	case live.AlertsChanged:
+		w.writeNav(rw, r)
+		return
+	case live.ServicesChanged:
+		writeSSE(rw, "services", "changed")
 		w.writeNav(rw, r)
 		return
 	case live.HostRemoved:

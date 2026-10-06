@@ -496,7 +496,7 @@ func TestMenuOnEveryPageWithCounts(t *testing.T) {
 	h.st.CreateAlert(ctx, id, "cpu_high", "", "CPU 95%", h.clock, true)
 	h.st.CreateAlert(ctx, id, "ram_high", "", "memory 95%", h.clock, false)
 	c := h.login()
-	for path, page := range map[string]string{"/": "hosts", "/hosts/1": "hosts", "/alerts": "alerts", "/logs": "logs", "/settings": "settings"} {
+	for path, page := range map[string]string{"/": "hosts", "/hosts/1": "hosts", "/alerts": "alerts", "/logs": "logs", "/settings": "settings", "/services": "services"} {
 		w := h.do("GET", path, c, nil, false)
 		body := w.Body.String()
 		if w.Code != http.StatusOK {
@@ -505,6 +505,7 @@ func TestMenuOnEveryPageWithCounts(t *testing.T) {
 		}
 		for _, want := range []string{`data-page="` + page + `"`, `<nav id="nav" class="side"`, `sse-swap="nav"`,
 			`<a href="/" data-nav="hosts">Hosts<span class="count">2</span></a>`,
+			`<a href="/services" data-nav="services">Services<span class="count">0</span></a>`,
 			`<a href="/alerts" data-nav="alerts">Alerts<span class="count bad">1</span></a>`,
 			`<a href="/logs" data-nav="logs">Logs</a>`,
 			`<a href="/settings" data-nav="settings">Settings</a>`, `fleetwatch@hub.example.com:~$`} {

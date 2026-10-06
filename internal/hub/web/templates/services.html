@@ -1,0 +1,72 @@
+{{define "servicecard"}}<div class="svc-card" id="svc-{{.ID}}" data-search="{{.Search}}" data-state="{{if .Paused}}paused{{else}}unknown{{end}}">
+  <a class="open" href="{{.URL}}" target="_blank" rel="noopener noreferrer">
+    {{if .IconURL}}<img src="{{.IconURL}}" alt="" width="28" height="28">{{else}}<span class="letter" aria-hidden="true">{{.Letter}}</span>{{end}}
+    <span class="name">{{.Name}}</span>
+    {{if .Group}}<span class="grp">{{.Group}}</span>{{end}}
+    <span class="state"><span class="dot"></span>{{if .Paused}}paused{{else}}not checked yet{{end}}</span>
+  </a>
+  <details class="svc-menu">
+    <summary aria-label="Actions for {{.Name}}">⋯</summary>
+    <div class="svc-actions">
+      <button type="button" hx-get="/services/{{.ID}}/edit" hx-target="#service-body" hx-swap="innerHTML">Edit</button>
+      <form method="post" action="/services/{{.ID}}/enabled"><input type="hidden" name="enabled" value="{{if .Paused}}1{{else}}0{{end}}"><button>{{if .Paused}}Resume{{else}}Pause{{end}}</button></form>
+      <form method="post" action="/services/{{.ID}}/delete" data-confirm="Delete {{.Name}}? It is removed from FleetWatch only; the application itself is not touched."><button class="danger">Delete</button></form>
+    </div>
+  </details>
+</div>{{end}}
+
+{{define "servicelist"}}{{if .Groups}}{{range .Groups}}<section class="svc-group">
+  <h2>{{.Name}}</h2>
+  <div class="svc-grid">{{range .Cards}}{{template "servicecard" .}}{{end}}</div>
+</section>{{end}}{{else}}<p class="empty">No services yet. Choose <strong>+ Add Service</strong> to add the first application.</p>{{end}}{{end}}
+
+{{define "services"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" "Services"}}</head>
+<body data-page="{{.Page}}" data-now="{{.NowUnix}}" hx-ext="sse" sse-connect="/events">
+<header class="top">
+  <h1><a href="/">{{template "brand"}}</a><span class="crumb">Services</span></h1>
+  <label class="search">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+    <input id="search" type="search" placeholder="Search services..." aria-label="Search services" autocomplete="off">
+    <kbd>/</kbd>
+  </label>
+  <div class="actions">
+    <button id="add-service" class="primary" hx-get="/services/new" hx-target="#service-body" hx-swap="innerHTML">+ Add Service</button>
+    <form method="post" action="/logout"><button>Log out</button></form>
+  </div>
+</header>
+{{template "side" .Nav}}
+<main>
+  <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <div id="svc-list" hx-get="/services/list" hx-trigger="sse:services, services-saved from:body" hx-swap="innerHTML">{{template "servicelist" .}}</div>
+  <p id="nomatch" class="nomatch" role="status" hidden>No service matches the search.</p>
+</main>
+{{template "foot" .}}
+<dialog id="service-dialog"><div id="service-body"></div></dialog>
+{{template "scripts"}}
+</body>
+</html>{{end}}
+
+{{define "serviceform"}}<h2>{{if .ID}}Edit Service{{else}}Add Service{{end}}</h2>
+<form class="svc-form" hx-post="/services{{if .ID}}/{{.ID}}{{end}}" hx-target="#service-body" hx-swap="innerHTML">
+  {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+  <label>Name<input name="name" value="{{.S.Name}}" maxlength="64" required autofocus></label>
+  <label>URL<input name="url" type="url" value="{{.S.URL}}" placeholder="https://app.example.com" required></label>
+  <label>Group<input name="group" value="{{.S.Group}}" list="groups" maxlength="64" placeholder="Production"></label>
+  <datalist id="groups">{{range .Groups}}<option value="{{.}}">{{end}}</datalist>
+  <label>Related host<select name="host"><option value="">None</option>{{range .Hosts}}<option value="{{.ID}}"{{if eq .ID $.S.HostID}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>
+  <label>Check every<select name="interval">{{range .Intervals}}<option value="{{.Seconds}}"{{if eq .Seconds $.S.IntervalS}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <details class="advanced"{{if .Error}} open{{end}}>
+    <summary>Advanced</summary>
+    <label>Timeout (seconds)<input name="timeout" type="number" value="{{.S.TimeoutS}}" min="1" max="60"></label>
+    <label>Expected status<input name="status" type="number" value="{{if .S.ExpectedStatus}}{{.S.ExpectedStatus}}{{end}}" min="100" max="599" placeholder="any 2xx or 3xx"></label>
+    <label class="check"><input name="selfsigned" type="checkbox" value="1"{{if .S.AcceptSelfSigned}} checked{{end}}>Accept self-signed certificate</label>
+    <label>Description<input name="description" value="{{.S.Description}}" maxlength="200"></label>
+  </details>
+  <div class="buttons">
+    {{if .ID}}<button type="button" hx-post="/services/{{.ID}}/icon" hx-swap="none">Refresh icon</button>{{end}}
+    <button type="button" data-close>Cancel</button>
+    <button class="primary">{{if .ID}}Save{{else}}Add Service{{end}}</button>
+  </div>
+</form>{{end}}

@@ -12,6 +12,9 @@ const (
 	AlertsChanged
 	// HostRemoved names a host that no longer exists.
 	HostRemoved
+	// ServicesChanged carries no host: a service was added, changed, removed
+	// or got its icon.
+	ServicesChanged
 )
 
 type Event struct {

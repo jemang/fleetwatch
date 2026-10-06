@@ -68,6 +68,7 @@ func TestProblemLines(t *testing.T) {
 		"agent files missing in /dl":                                true,
 		"alerts: giving up on the \"firing\" message":               true,
 		"Terror in the mirror":                                      false,
+		"icon for Grafana not fetched: answered HTTP 404":           true,
 	} {
 		if got := Problem(text); got != want {
 			t.Errorf("Problem(%q) = %v, want %v", text, got, want)

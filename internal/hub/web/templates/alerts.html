@@ -1,4 +1,5 @@
 {{define "nav"}}<a href="/" data-nav="hosts">Hosts<span class="count">{{.Hosts}}</span></a>
+<a href="/services" data-nav="services">Services<span class="count">{{.Services}}</span></a>
 <a href="/alerts" data-nav="alerts">Alerts<span class="count{{if .Firing}} bad{{end}}">{{.Firing}}</span></a>
 <a href="/logs" data-nav="logs">Logs</a>
 <a href="/settings" data-nav="settings">Settings</a>{{end}}

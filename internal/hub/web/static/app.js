@@ -8,6 +8,11 @@
   var clock = document.getElementById('clock');
   var dialog = document.getElementById('enroll-dialog');
   var conn = document.getElementById('conn');
+  var svcDialog = document.getElementById('service-dialog');
+  var svcList = document.getElementById('svc-list');
+
+  // A form refused with 422 comes back with its message; show it.
+  if (window.htmx) htmx.config.responseHandling.unshift({ code: '422', swap: true });
 
   function unit(n, word) { return n + ' ' + word + (n === 1 ? '' : 's') + ' ago'; }
   function ago(s) {
@@ -86,15 +91,31 @@
     });
     nomatch.hidden = !(q !== '' && rows.length > 0 && shown === 0);
   }
+  // Services: search on name, address, group and description; a group
+  // without a matching card hides with them.
+  function applyCardFilter() {
+    if (!svcList || !search) return;
+    var q = search.value.trim().toLowerCase(), cards = svcList.querySelectorAll('.svc-card'), shown = 0;
+    cards.forEach(function (c) {
+      c.hidden = q !== '' && c.dataset.search.indexOf(q) === -1;
+      if (!c.hidden) shown++;
+    });
+    svcList.querySelectorAll('.svc-group').forEach(function (g) {
+      g.hidden = !g.querySelector('.svc-card:not([hidden])');
+    });
+    nomatch.hidden = !(q !== '' && cards.length > 0 && shown === 0);
+  }
   if (search) {
     search.addEventListener('input', applyFilter);
+    search.addEventListener('input', applyCardFilter);
     document.addEventListener('keydown', function (e) {
-      if (e.key === '/' && document.activeElement !== search && !(dialog && dialog.open)) {
+      if (e.key === '/' && document.activeElement !== search && !(dialog && dialog.open) && !(svcDialog && svcDialog.open)) {
         e.preventDefault();
         search.focus();
       } else if (e.key === 'Escape' && document.activeElement === search) {
         search.value = '';
         applyFilter();
+        applyCardFilter();
         search.blur();
       }
     });
@@ -201,7 +222,7 @@
     });
   }
 
-  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); labelCharts(); logsTick(); }
+  function refresh() { tick(); stamp(); markNav(); applySort(); applyFilter(); applyCardFilter(); labelCharts(); logsTick(); }
   setInterval(tick, 1000);
   refresh();
   document.body.addEventListener('htmx:sseMessage', refresh);
@@ -220,6 +241,11 @@
   });
   document.body.addEventListener('htmx:afterSwap', function (e) {
     if (dialog && e.target.id === 'enroll-body') dialog.showModal();
+    // Service dialog: an empty answer means the service was saved.
+    if (svcDialog && e.target.id === 'service-body') {
+      if (e.target.innerHTML.trim() === '') svcDialog.close();
+      else if (!svcDialog.open) svcDialog.showModal();
+    }
     refresh();
   });
 
@@ -285,5 +311,16 @@
       out.textContent = 'Copied.';
       out.className = 'ok';
     }, fail);
+  });
+  document.addEventListener('click', function (e) {
+    if (svcDialog && e.target.closest('[data-close]')) svcDialog.close();
+    // A click outside an open card menu closes it.
+    document.querySelectorAll('details.svc-menu[open]').forEach(function (d) {
+      if (!d.contains(e.target) || e.target.closest('.svc-actions button')) d.open = false;
+    });
+  });
+  document.addEventListener('submit', function (e) {
+    var msg = e.target.dataset && e.target.dataset.confirm;
+    if (msg && !confirm(msg)) e.preventDefault();
   });
 })();
