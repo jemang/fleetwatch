@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -428,7 +429,10 @@ func TestCardLiveLine(t *testing.T) {
 	}
 }
 
-func TestServiceCheckedStreamEvent(t *testing.T) {
+// checkedEvents opens path as the page's live stream, publishes one check of
+// a service and returns the first n events as "name: data".
+func checkedEvents(t *testing.T, path string, n int) (int64, []string) {
+	t.Helper()
 	h := newHarness(t, "https://hub.example.com", false)
 	id := h.addService("a", "http://a", "")
 	c := h.login()
@@ -436,7 +440,7 @@ func TestServiceCheckedStreamEvent(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+path, nil)
 	req.AddCookie(c)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -447,6 +451,7 @@ func TestServiceCheckedStreamEvent(t *testing.T) {
 	sc.Scan()
 	h.st.SaveCheck(context.Background(), id, "http://a", store.CheckState{State: "online", CheckedAt: 1790000000, Ms: 12})
 	h.bus.Publish(live.Event{Kind: live.ServiceChecked, HostID: id})
+	var out []string
 	var event, data string
 	for sc.Scan() {
 		line := sc.Text()
@@ -456,13 +461,31 @@ func TestServiceCheckedStreamEvent(t *testing.T) {
 		case strings.HasPrefix(line, "data: "):
 			data += line[6:]
 		case line == "" && event != "":
-			if event != "svc-"+itoa(id) || !strings.Contains(data, `data-state="online"`) || !strings.Contains(data, "12 ms") {
-				t.Errorf("event %q data %q", event, data)
+			out = append(out, event+": "+data)
+			event, data = "", ""
+			if len(out) == n {
+				return id, out
 			}
-			return
 		}
 	}
-	t.Fatalf("stream ended: %v", sc.Err())
+	t.Fatalf("stream ended after %q: %v", out, sc.Err())
+	return id, nil
+}
+
+func TestServiceCheckedStreamEvent(t *testing.T) {
+	id, got := checkedEvents(t, "/events?cards=1", 1)
+	if !strings.HasPrefix(got[0], "svc-"+itoa(id)+": ") || !strings.Contains(got[0], `data-state="online"`) || !strings.Contains(got[0], "12 ms") {
+		t.Errorf("the Services page gets the card's status line: %q", got)
+	}
+}
+
+// Pages without cards get only the event names: no card is rendered for
+// them on every check.
+func TestServiceCheckedWithoutCards(t *testing.T) {
+	id, got := checkedEvents(t, "/events?host=1", 2)
+	if got[0] != "svc-"+itoa(id)+": checked" || got[1] != "svc-checked: "+itoa(id) {
+		t.Errorf("events %q", got)
+	}
 }
 
 func TestSettingsServiceRules(t *testing.T) {
@@ -614,6 +637,25 @@ func TestServiceDetailWhileDown(t *testing.T) {
 	if strings.Contains(status, "%") {
 		t.Errorf("the status line repeats the uptime shown in its own row: %s", status)
 	}
+	if !strings.Contains(status, `<b>DOWN</b> <span data-for="`+itoa(at)+`"></span>`) {
+		t.Errorf("the status says how long the state lasts: %s", status)
+	}
+	if !strings.Contains(body, `<span data-dur="`+itoa(at)+`"></span>`) {
+		t.Error("an ongoing incident's duration counts up live")
+	}
+}
+
+func TestServiceDetailStatusOnline(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id := h.addService("Local", "http://127.0.0.1:8095", "")
+	at := h.clock.Unix()
+	h.st.SaveCheck(context.Background(), id, "http://127.0.0.1:8095", store.CheckState{State: "online", OK: true, Since: at - 3*86400, CheckedAt: at, Ms: 68})
+	body := h.do("GET", "/services/"+itoa(id), h.login(), nil, false).Body.String()
+	status := body[strings.Index(body, "<dt>Status</dt>"):]
+	status = status[:strings.Index(status, "</dd>")]
+	if !strings.Contains(status, `Online <span data-for="`+itoa(at-3*86400)+`"></span>`) || strings.Contains(status, "68 ms") {
+		t.Errorf("status: %s", status)
+	}
 }
 
 func TestAlertsPageShowsServiceAlerts(t *testing.T) {
@@ -680,5 +722,61 @@ func TestQuietlyEndedAlertSaysNoMessage(t *testing.T) {
 	v := BuildAlertView(a, time.Unix(300, 0))
 	if v.FireMsg != "sent" || !strings.HasPrefix(v.ResolveMsg, "none: it ended without a message") {
 		t.Fatalf("messages = %q / %q", v.FireMsg, v.ResolveMsg)
+	}
+}
+
+func TestServiceChangesArePublished(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	h.web.iconFetch = func(context.Context, string, svcicon.Options) ([]byte, string, error) {
+		return nil, "", errors.New("no")
+	}
+	id := h.addService("Grafana", "https://grafana.lan", "Infra")
+	c := h.login()
+	events, cancel := h.bus.Subscribe()
+	defer cancel()
+	next := func(what string) {
+		t.Helper()
+		select {
+		case ev := <-events:
+			if ev.Kind != live.ServicesChanged {
+				t.Errorf("%s: event %+v", what, ev)
+			}
+		case <-time.After(time.Second):
+			t.Errorf("%s: no event", what)
+		}
+	}
+	h.do("POST", "/services/"+itoa(id), c, validForm(), true)
+	h.web.bg.Wait()
+	next("edit")
+	h.do("POST", "/services/"+itoa(id)+"/enabled", c, form("enabled", "0"), false)
+	next("pause")
+	h.do("POST", "/services/"+itoa(id)+"/delete", c, nil, false)
+	next("delete")
+}
+
+// An interval stored outside the five choices (a direct POST) stays selected
+// in the edit form, so Save does not silently change it.
+func TestEditFormKeepsAnOddInterval(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id, err := h.st.CreateService(context.Background(), store.Service{Name: "Odd", URL: "https://odd.lan", IntervalS: 45, TimeoutS: 10, Enabled: true}, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := h.do("GET", "/services/"+itoa(id)+"/edit", h.login(), nil, true).Body.String()
+	if !strings.Contains(body, `<option value="45" selected>45 s</option>`) {
+		t.Errorf("the stored interval is not offered: %s", body[strings.Index(body, `name="interval"`):][:400])
+	}
+}
+
+// The detail page of a service deleted in another tab leaves for the list
+// on its next redraw instead of going silently stale.
+func TestPanelOfADeletedServiceRedirects(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id := h.addService("A", "https://a.lan", "")
+	c := h.login()
+	h.st.DeleteService(context.Background(), id)
+	w := h.do("GET", "/services/"+itoa(id)+"/panel", c, nil, true)
+	if w.Code != http.StatusOK || w.Header().Get("HX-Redirect") != "/services" {
+		t.Errorf("panel of a deleted service: %d %q", w.Code, w.Header().Get("HX-Redirect"))
 	}
 }

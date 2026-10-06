@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -67,6 +68,14 @@ type intervalChoice struct {
 
 var intervals = []intervalChoice{{30, "30 s"}, {60, "60 s"}, {120, "2 min"}, {300, "5 min"}, {600, "10 min"}}
 
+// durationLabel names an interval as the choices do: "45 s", "15 min".
+func durationLabel(secs int) string {
+	if secs%60 == 0 && secs >= 120 {
+		return strconv.Itoa(secs/60) + " min"
+	}
+	return strconv.Itoa(secs) + " s"
+}
+
 type serviceForm struct {
 	ID        int64 // 0 when adding
 	S         store.Service
@@ -80,6 +89,11 @@ func (w *Web) renderServiceForm(rw http.ResponseWriter, r *http.Request, status 
 	f.Hosts, _ = w.st.Hosts(r.Context())
 	f.Groups, _ = w.st.ServiceGroups(r.Context())
 	f.Intervals = intervals
+	// An interval set outside the choices (a direct POST) stays selected, so
+	// Save keeps it.
+	if !slices.ContainsFunc(intervals, func(c intervalChoice) bool { return c.Seconds == f.S.IntervalS }) {
+		f.Intervals = append(slices.Clone(intervals), intervalChoice{f.S.IntervalS, durationLabel(f.S.IntervalS)})
+	}
 	w.render(rw, status, "serviceform", f)
 }
 

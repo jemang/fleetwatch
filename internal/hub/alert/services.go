@@ -102,7 +102,7 @@ func certCondition(sv store.Service, now time.Time, days []int) (ServiceConditio
 	if sv.CertExpiresAt == 0 || !strings.HasPrefix(strings.ToLower(sv.URL), "https://") || len(days) == 0 {
 		return ServiceCondition{}, false
 	}
-	date := time.Unix(sv.CertExpiresAt, 0).UTC().Format("2 Jan 2006")
+	date := time.Unix(sv.CertExpiresAt, 0).Format("2 Jan 2006") // the Hub's zone, as in Since and Ended
 	left := sv.CertExpiresAt - now.Unix()
 	if left <= 0 {
 		return ServiceCondition{ServiceID: sv.ID, Kind: KindSvcCert, Subject: certSubject("expired", sv.CertExpiresAt), Detail: "expired " + date}, true
@@ -122,6 +122,9 @@ func certCondition(sv store.Service, now time.Time, days []int) (ServiceConditio
 }
 
 func daysText(n int) string {
+	if n == 0 {
+		return "less than a day"
+	}
 	if n == 1 {
 		return "1 day"
 	}

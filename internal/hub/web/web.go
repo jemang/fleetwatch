@@ -165,6 +165,7 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/password", w.requireSession(w.changePassword))
 	mux.HandleFunc("GET /events", w.requireSession(w.events))
 	w.passkeyRoutes(mux)
+	w.pushRoutes(mux)
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
 }
 
@@ -451,6 +452,14 @@ func (w *Web) writeHostEvent(rw io.Writer, r *http.Request, ev live.Event, watch
 		w.writeNav(rw, r)
 		return
 	case live.ServiceChecked:
+		id := strconv.FormatInt(ev.HostID, 10)
+		// Only the Services page shows cards; other pages fetch what they need
+		// when the event names their service, or a host's service list.
+		if r.URL.Query().Get("cards") != "1" {
+			writeSSE(rw, "svc-"+id, "checked")
+			writeSSE(rw, "svc-checked", id)
+			return
+		}
 		// Only the card's status line is redrawn; its menu stays as it is.
 		if sv, err := w.st.Service(r.Context(), ev.HostID); err == nil {
 			c := serviceCard(sv)

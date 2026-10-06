@@ -36,10 +36,15 @@ type Engine struct {
 	// Send delivers one message; nil sends to the targets in the settings.
 	Send         func(ctx context.Context, settings map[string]string, m Message) error
 	TelegramBase string
+	PushSubject  string // the VAPID contact: push.Subject of the public URL
 	Log          func(format string, args ...any)
 
 	seenRunning map[GuestKey]bool
 	outages     map[int64]outage // the latest silence of each host, while the Hub runs
+	// delivered holds, per owed message, the targets that already took it, so
+	// a retry goes only to the targets that failed. It is kept in memory: a
+	// Hub restart can repeat a message once.
+	delivered map[sentKey]map[string]bool
 }
 
 func (e *Engine) logf(format string, args ...any) {
@@ -68,12 +73,40 @@ func (e *Engine) deliver(ctx context.Context, settings map[string]string, m Mess
 		return e.Send(ctx, settings, m)
 	}
 	var errs []error
-	for _, t := range Targets(settings, e.TelegramBase) {
+	targets := Targets(settings, e.TelegramBase)
+	if pt, err := PushTarget(ctx, e.St, settings, e.PushSubject, e.Now(), e.logf); err != nil {
+		errs = append(errs, fmt.Errorf("Push: %w", err))
+	} else if pt != nil {
+		targets = append(targets, *pt)
+	}
+	key := sentKey{m.AlertID, m.Event}
+	done := e.delivered[key]
+	for _, t := range targets {
+		if done[t.Name] {
+			continue
+		}
 		if err := t.Send(ctx, m); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
+			continue
 		}
+		if done == nil {
+			if e.delivered == nil {
+				e.delivered = map[sentKey]map[string]bool{}
+			}
+			done = map[string]bool{}
+			e.delivered[key] = done
+		}
+		done[t.Name] = true
+	}
+	if len(errs) == 0 {
+		delete(e.delivered, key)
 	}
 	return errors.Join(errs...)
+}
+
+type sentKey struct {
+	alert int64
+	event string
 }
 
 func (e *Engine) Tick(ctx context.Context) error {
@@ -177,6 +210,14 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 		return
 	}
 	var hostServices map[int64][]string // filled once, only when an offline message is owed
+	stillOwed := map[sentKey]bool{}
+	defer func() {
+		for k := range e.delivered {
+			if !stillOwed[k] {
+				delete(e.delivered, k)
+			}
+		}
+	}()
 	for _, a := range owed {
 		resolved, dismissed := !a.ResolvedAt.IsZero(), !a.DismissedAt.IsZero()
 		event, at := "firing", a.FiredAt
@@ -186,8 +227,7 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 		switch {
 		case event == "firing" && (resolved || dismissed):
 			// It ended before anyone was told: say nothing about it at all.
-			e.St.MarkNotified(ctx, a.ID, "firing")
-			e.St.MarkNotified(ctx, a.ID, "resolved")
+			e.St.MarkSkipped(ctx, a.ID)
 			continue
 		case event == "resolved" && dismissed:
 			e.St.MarkNotified(ctx, a.ID, "resolved")
@@ -198,7 +238,7 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 			continue
 		}
 		msg := Message{Event: event, Host: a.Host, Kind: a.Kind, Subject: a.Subject, Detail: a.Detail, Since: a.PendingSince, At: at, Hub: e.Hub,
-			Service: a.Service, ServiceID: a.ServiceID, ServiceHost: domain(a.ServiceURL)}
+			Service: a.Service, ServiceID: a.ServiceID, AlertID: a.ID, ServiceHost: domain(a.ServiceURL)}
 		if a.Kind == KindOffline {
 			if hostServices == nil {
 				hostServices = e.servicesByHost(ctx)
@@ -206,6 +246,7 @@ func (e *Engine) notify(ctx context.Context, settings map[string]string, now tim
 			msg.HostServices = hostServices[a.HostID]
 		}
 		if err := e.deliver(ctx, settings, msg); err != nil {
+			stillOwed[sentKey{a.ID, event}] = true
 			e.logf("alerts: %q message for %s on %s not delivered: %v", event, a.Kind, who(a), err)
 			continue
 		}

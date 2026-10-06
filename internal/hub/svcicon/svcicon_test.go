@@ -179,3 +179,18 @@ func TestFindIconHref(t *testing.T) {
 		t.Errorf("rel must contain the token icon, not the text: %q", h)
 	}
 }
+
+func TestReasonHidesABrokenRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://x/%zz?token=s3cret")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+	_, _, err := Fetch(context.Background(), srv.URL, Options{Timeout: time.Second})
+	if err == nil {
+		t.Fatal("a broken redirect must fail")
+	}
+	if r := Reason(err); strings.Contains(r, "s3cret") || r != "bad redirect" {
+		t.Errorf("Reason = %q", r)
+	}
+}

@@ -52,7 +52,7 @@ func TestAvailabilityBar(t *testing.T) {
 func TestCertInfo(t *testing.T) {
 	now := time.Unix(1_790_000_000, 0)
 	day := int64(86400)
-	date := func(ts int64) string { return time.Unix(ts, 0).UTC().Format("2 Jan 2006") }
+	date := func(ts int64) string { return time.Unix(ts, 0).Format("2 Jan 2006") }
 	for _, c := range []struct {
 		url       string
 		exp       int64
@@ -66,6 +66,7 @@ func TestCertInfo(t *testing.T) {
 		{"https://a", now.Unix() + 5*day, true, true, "valid · expires in 5 days (" + date(now.Unix()+5*day) + ") · self-signed accepted", "warn"},
 		{"https://a", now.Unix() + 100, false, true, "valid · expires within a day", "warn"},
 		{"https://a", now.Unix() - 3*day, false, true, "expired 3 days ago", "bad"},
+		{"https://a", now.Unix() - 7200, false, true, "expired less than a day ago", "bad"},
 	} {
 		got := certInfo(store.Service{URL: c.url, CertExpiresAt: c.exp, AcceptSelfSigned: c.self}, now)
 		if got.Show != c.show || (c.show && (got.Text != c.text || got.Level != c.lvl)) {

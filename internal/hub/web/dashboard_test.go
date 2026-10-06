@@ -67,7 +67,7 @@ func TestDashboardCountsAndAttention(t *testing.T) {
 	if strings.Count(att, "[DOWN]") != 1 {
 		t.Error("a service under an offline host is listed under the host, not again as DOWN")
 	}
-	for _, want := range []string{`data-tile="total"><div class="label">Services · 1 paused</div><div class="value">6<`,
+	for _, want := range []string{`data-tile="total"><div class="label">Services · 1 paused · 1 not checked</div><div class="value">6<`,
 		`data-tile="online"><div class="label">Online</div><div class="value">2<`,
 		`data-tile="down"><div class="label">Down</div><div class="value">2<`,
 		`data-tile="slow"><div class="label">Slow</div><div class="value">1<`} {
@@ -186,5 +186,26 @@ func TestDashboardPanelRedrawIsBounded(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard is missing %q: host reports arrive every few seconds", want)
 		}
+	}
+}
+
+// A slow service whose host is offline is not listed as [SLOW]: its host's
+// outage is the news. An incident ended by a pause says so.
+func TestDashboardSlowUnderOfflineHostAndPausedIncident(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	host := h.addRichHost("pve-2")
+	id, _ := h.st.CreateService(ctx, store.Service{Name: "Proxmox", URL: "https://pve.lan", HostID: host, IntervalS: 60, TimeoutS: 10, Enabled: true}, h.clock)
+	h.st.SaveCheck(ctx, id, "https://pve.lan", store.CheckState{State: "degraded", OK: true, Ms: 1500, CheckedAt: h.clock.Unix()})
+	p := h.addService("Portal", "https://portal.lan", "")
+	h.st.SaveCheck(ctx, p, "https://portal.lan", store.CheckState{State: "down", Since: h.clock.Unix() - 60, CheckedAt: h.clock.Unix(), Error: "timeout"})
+	h.st.SetServiceEnabled(ctx, p, false)
+	h.clock = h.clock.Add(2 * time.Minute) // pve-2 stops reporting
+	body := h.do("GET", "/dashboard/panel", h.login(), nil, true).Body.String()
+	if strings.Contains(body, "[SLOW]") {
+		t.Error("a slow service under an offline host is listed as [SLOW]")
+	}
+	if !strings.Contains(body, `timeout <span class="muted">· ended: paused</span>`) {
+		t.Errorf("incident end reason missing: %s", body[strings.Index(body, "Recent incidents"):])
 	}
 }

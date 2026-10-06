@@ -434,6 +434,8 @@ dialog .steplabel + pre { margin-top: 8px; }
   .hosts td.host::before { color: var(--ok); }
   .hosts tr:has([data-status="offline"]) td.host::before { color: var(--bad); }
   .hosts tr:has([data-status="disabled"]) td.host::before { color: var(--ink-3); }
+  /* Device and passkey tables fit a phone: "Added" is the column to give up. */
+  .passkeys th:nth-child(2), .passkeys td:nth-child(2) { display: none; }
   .agentbar .actions { flex-wrap: wrap; margin-left: 0; }
   .rename { width: 100%; }
   .rename input { flex: 1 1 0; width: auto; min-width: 0; }

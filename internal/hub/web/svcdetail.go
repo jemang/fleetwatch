@@ -1,8 +1,10 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"fleetwatch/internal/hub/store"
@@ -99,6 +101,12 @@ func (w *Web) servicePage(rw http.ResponseWriter, r *http.Request) {
 
 // servicePanel is the live part of the detail page.
 func (w *Web) servicePanel(rw http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	// Deleted in another tab: the page goes back to the list.
+	if _, err := w.st.Service(r.Context(), id); errors.Is(err, store.ErrNotFound) && r.Header.Get("HX-Request") == "true" {
+		rw.Header().Set("HX-Redirect", "/services")
+		return
+	}
 	sv, ok := w.serviceFromPath(rw, r)
 	if !ok {
 		return

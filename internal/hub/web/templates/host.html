@@ -86,7 +86,7 @@
     <div><dt>Memory</dt><dd>{{.Detail.MemTotal}}</dd></div>
   </dl>
   <div id="now" sse-swap="detail" hx-swap="innerHTML">{{template "now" .Detail}}</div>
-  <div id="host-services" hx-get="/hosts/{{.Detail.Row.ID}}/services" hx-trigger="sse:services" hx-swap="innerHTML">{{template "hostservices" .Services}}</div>
+  <div id="host-services" hx-get="/hosts/{{.Detail.Row.ID}}/services" hx-trigger="sse:services, sse:svc-checked throttle:5s" hx-swap="innerHTML">{{template "hostservices" .Services}}</div>
   <h2>History</h2>
   <section id="charts" hx-get="/hosts/{{.Detail.Row.ID}}/charts?range=1h" hx-trigger="load" hx-swap="innerHTML"></section>
   <h2>Name</h2>

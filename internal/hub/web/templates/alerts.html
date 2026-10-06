@@ -71,7 +71,7 @@
     <thead><tr><th>Message</th><th>Status</th></tr></thead>
     <tbody><tr><td>Firing</td><td>{{.A.FireMsg}}</td></tr><tr><td>Resolved</td><td>{{.A.ResolveMsg}}</td></tr></tbody>
   </table></div>
-  <p class="hint">Messages go to the targets in Settings: the webhook and Telegram. Without a target a message counts as sent.</p>
+  <p class="hint">Messages go to the targets in Settings: the webhook, Telegram and the devices with notifications on. Without a target a message counts as sent.</p>
   {{if eq .A.State "firing"}}<form class="agentbar" method="post" action="/alerts/{{.A.ID}}/dismiss"><p>Dismiss hides this alert and sends no further message for it. It comes back only if the problem ends and then happens again.</p><button>Dismiss</button></form>{{end}}
 </main>
 {{template "foot" .}}
@@ -165,6 +165,17 @@
     <div class="formfoot"><input id="passkey-name" placeholder="Name, for example MacBook" maxlength="64" autocomplete="off"><button type="button" id="passkey-register" class="primary">Add passkey</button><span id="passkey-msg" class="testresult" role="status"></span></div>
   </form>
   <script src="{{asset "/static/passkey.js"}}"></script>{{else}}<p class="hint">Passkeys are off: browsers allow them only when the Hub is reached over HTTPS with a host name, and this Hub's address is {{.PublicURL}}. Set FLEETWATCH_PUBLIC_URL to an https:// address with a name, start the Hub again, and this section turns on.</p>{{end}}
+  <h2>Phone and browser notifications</h2>
+  <section id="push" class="push" data-key="{{.PushKey}}" data-url="{{.PublicURL}}">
+    <p class="hint">Alerts appear as notifications on this device, like other apps, also when FleetWatch is closed. On iPhone, add FleetWatch to the Home Screen and open it from there first.</p>
+    <p id="push-state" class="hint" role="status">Checking this device…</p>
+    <div class="formfoot"><button type="button" id="push-on" class="primary" hidden>Turn on for this device</button><button type="button" id="push-test" hidden>Send test</button><button type="button" id="push-off" hidden>Turn off</button><span id="push-msg" class="testresult" role="status"></span></div>
+    {{if .PushDevices}}<div class="scroll"><table class="hosts plain passkeys">
+      <thead><tr><th>Device</th><th>Added</th><th>Last delivered</th><th aria-label="Action"></th></tr></thead>
+      <tbody>{{range .PushDevices}}<tr><td>{{.Label}}</td><td class="when" data-time="{{.Created}}">{{.CreatedText}}</td><td class="when"{{if .OK}} data-time="{{.OK}}"{{end}}>{{if .OK}}{{.OKText}}{{else}}never{{end}}</td><td class="act"><form method="post" action="/push/{{.ID}}/delete"><button>Remove</button></form></td></tr>{{end}}</tbody>
+    </table></div>{{end}}
+  </section>
+  <script src="{{asset "/static/push.js"}}"></script>
 </main>
 {{template "foot" .}}
 {{template "scripts"}}

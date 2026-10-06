@@ -158,6 +158,16 @@ func (s *Store) SetServiceEnabled(ctx context.Context, id int64, enabled bool) e
 		return err
 	}
 	defer tx.Rollback()
+	var was bool
+	if err := tx.QueryRowContext(ctx, `SELECT enabled FROM services WHERE id = ?`, id).Scan(&was); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	// A stale Pause or Resume from a second tab changes nothing.
+	if was == enabled {
+		return nil
+	}
 	if err := one(tx.ExecContext(ctx, `UPDATE services SET enabled = ?, state = ?, state_since = 0, fail_streak = 0, ok_streak = 0 WHERE id = ?`, enabled, state, id)); err != nil {
 		return err
 	}

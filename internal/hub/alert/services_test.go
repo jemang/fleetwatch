@@ -55,12 +55,12 @@ func TestEvaluateServices(t *testing.T) {
 		{ID: 9, URL: "https://i", Enabled: true, State: "online", CertExpiresAt: exp(1)},
 	}
 	r := ServiceRulesFrom(nil)
-	date := func(ts int64) string { return time.Unix(ts, 0).UTC().Format("2 Jan 2006") }
+	date := func(ts int64) string { return time.Unix(ts, 0).Format("2 Jan 2006") }
 	itoa := func(n int64) string { return strconv.FormatInt(n, 10) }
 	want := "1:svc_down::timeout" +
 		" | 3:svc_cert:30@" + itoa(exp(20)) + ":20 days, " + date(exp(20)) +
 		" | 5:svc_cert:expired@" + itoa(now.Unix()-3600) + ":expired " + date(now.Unix()-3600) +
-		" | 8:svc_cert:1@" + itoa(exp(0)) + ":0 days, " + date(exp(0)) +
+		" | 8:svc_cert:1@" + itoa(exp(0)) + ":less than a day, " + date(exp(0)) +
 		" | 9:svc_cert:1@" + itoa(exp(1)) + ":1 day, " + date(exp(1))
 	if got := svcConds(EvaluateServices(list, now, r, nil)); got != want {
 		t.Fatalf("conditions =\n%s\nwant\n%s", got, want)
@@ -401,5 +401,38 @@ func TestOfflineMessageNamesTheHostServices(t *testing.T) {
 	}
 	if off == nil || strings.Join(off.HostServices, ",") != "A-app,b-app" {
 		t.Fatalf("offline message = %+v", off)
+	}
+}
+
+// The certificate date is in the Hub's zone, as Since and Ended are.
+func TestCertDateInHubZone(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("+08", 8*3600)
+	defer func() { time.Local = old }()
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	exp := time.Date(2026, 11, 10, 20, 0, 0, 0, time.UTC).Unix() // 11 Nov at +08
+	c, ok := certCondition(store.Service{URL: "https://a", CertExpiresAt: exp}, now, []int{30})
+	if !ok || c.Detail != "9 days, 11 Nov 2026" {
+		t.Errorf("detail = %q", c.Detail)
+	}
+}
+
+// An alert that ended before its firing message was delivered sends nothing
+// and is recorded as skipped, not as sent.
+func TestEndedBeforeDeliveryIsSkipped(t *testing.T) {
+	w := newWorld(t)
+	id := w.service("Grafana", "https://grafana.lan")
+	w.check(id, "https://grafana.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "timeout"})
+	w.fail = true
+	w.tick(15 * time.Second)
+	w.st.SetServiceEnabled(context.Background(), id, false)
+	w.fail = false
+	w.tick(15 * time.Second)
+	alerts, _ := w.st.Alerts(context.Background(), 100)
+	if len(w.sent) != 0 || len(alerts) != 1 || !alerts[0].Skipped || alerts[0].NotifiedFire || alerts[0].NotifiedResolve {
+		t.Errorf("sent %q, alert %+v", w.sent, alerts)
+	}
+	if owed, _ := w.st.UnnotifiedAlerts(context.Background()); len(owed) != 0 {
+		t.Errorf("still owed: %+v", owed)
 	}
 }

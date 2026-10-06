@@ -1,5 +1,5 @@
 {{define "svcpanel"}}<dl class="facts svc-facts">
-  <div><dt>Status</dt><dd>{{template "svclive" .C}}{{if .C.Reason}}<span class="why">{{.C.Reason}}</span>{{end}}</dd></div>
+  <div><dt>Status</dt><dd><span class="st" data-state="{{.C.State}}"><span class="dot"></span>{{if eq .C.State "paused"}}Paused{{else if eq .C.State "down"}}<b>DOWN</b>{{else if eq .C.State "online"}}Online{{else if eq .C.State "degraded"}}Slow{{else if .C.Checked}}Checking…{{else}}not checked yet{{end}}{{if and .C.Since (or (eq .C.State "online") (eq .C.State "degraded") (eq .C.State "down"))}} <span data-for="{{.C.Since}}"></span>{{end}}</span>{{if .C.Reason}}<span class="why">{{.C.Reason}}</span>{{end}}</dd></div>
   <div><dt>Response</dt><dd>{{if and .S.CheckedAt (ne .C.State "down")}}{{.C.MsText}}{{else}}–{{end}} · avg 24 h {{.Avg24}}</dd></div>
   <div><dt>Last check</dt><dd>{{if .S.CheckedAt}}<span data-ts="{{.S.CheckedAt}}"></span>{{else}}never{{end}} · every {{.S.IntervalS}} s</dd></div>
   <div><dt>Uptime</dt><dd>24 h {{.Up24}} · 7 d {{.Up7}} · 30 d {{.Up30}}</dd></div>
@@ -13,7 +13,7 @@
 <h2>Recent incidents</h2>
 {{if .Incidents}}<div class="scroll"><table class="hosts plain incidents">
   <thead><tr><th>Started</th><th>Ended</th><th>Duration</th><th>Reason</th></tr></thead>
-  <tbody>{{range .Incidents}}<tr><td class="when" data-time="{{.Start}}"></td><td class="when"{{if .End}} data-time="{{.End}}"{{end}}>{{if not .End}}<b class="ongoing">ongoing</b>{{end}}</td><td>{{if .End}}{{.Duration}}{{else}}<span data-for="{{.Start}}"></span>{{end}}</td><td>{{.Reason}}{{if .EndReason}} <span class="muted">· ended: {{.EndReason}}</span>{{end}}</td></tr>{{end}}</tbody>
+  <tbody>{{range .Incidents}}<tr><td class="when" data-time="{{.Start}}"></td><td class="when"{{if .End}} data-time="{{.End}}"{{end}}>{{if not .End}}<b class="ongoing">ongoing</b>{{end}}</td><td>{{if .End}}{{.Duration}}{{else}}<span data-dur="{{.Start}}"></span>{{end}}</td><td>{{.Reason}}{{if .EndReason}} <span class="muted">· ended: {{.EndReason}}</span>{{end}}</td></tr>{{end}}</tbody>
 </table></div>{{else}}<p class="none">No incidents in the last 90 days.</p>{{end}}{{end}}
 
 {{define "service"}}<!doctype html>

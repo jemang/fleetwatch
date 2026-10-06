@@ -21,6 +21,7 @@ import (
 	"fleetwatch/internal/hub/limit"
 	"fleetwatch/internal/hub/live"
 	"fleetwatch/internal/hub/logbuf"
+	"fleetwatch/internal/hub/push"
 	"fleetwatch/internal/hub/store"
 	"fleetwatch/internal/hub/web"
 	"fleetwatch/internal/release/pubkey"
@@ -157,7 +158,7 @@ func run() error {
 	go web.NewWatcher(st, bus, time.Now).Run(ctx, 5*time.Second)
 	go st.RunMetricWriter(ctx, 2*time.Second)
 	go maintain(ctx, st, cfg.Retention)
-	alerts := &alert.Engine{St: st, Bus: bus, Now: time.Now, Hub: web.HubName(cfg.PublicURL), Log: log.Printf}
+	alerts := &alert.Engine{St: st, Bus: bus, Now: time.Now, Hub: web.HubName(cfg.PublicURL), PushSubject: push.Subject(cfg.PublicURL), Log: log.Printf}
 	go alerts.Run(ctx, 15*time.Second)
 	checks := &checker.Checker{St: st, Bus: bus, Now: time.Now, Log: log.Printf}
 	go checks.Run(ctx, time.Second)

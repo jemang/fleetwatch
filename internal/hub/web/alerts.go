@@ -14,6 +14,7 @@ import (
 
 	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/live"
+	"fleetwatch/internal/hub/push"
 	"fleetwatch/internal/hub/store"
 )
 
@@ -85,7 +86,7 @@ func BuildAlertView(a store.Alert, now time.Time) AlertView {
 	v.FireMsg, v.ResolveMsg = "not yet: the alert is still pending", "not yet: the problem is still there"
 	switch {
 	case a.FiredAt.IsZero():
-	case !a.NotifiedFire && (resolved || dismissed):
+	case a.Skipped, !a.NotifiedFire && (resolved || dismissed):
 		v.FireMsg, v.ResolveMsg = "none: it ended before the message went out", "none"
 	case !a.NotifiedFire:
 		v.FireMsg = "being sent"
@@ -193,6 +194,8 @@ type settingsData struct {
 	PasskeysOn      bool
 	Passkeys        []PasskeyRow
 	PublicURL       string
+	PushKey         string // the public VAPID key browsers subscribe with
+	PushDevices     []PushRow
 }
 
 func formFromSettings(s map[string]string) settingsForm {
@@ -223,8 +226,19 @@ func (w *Web) renderSettings(rw http.ResponseWriter, r *http.Request, status int
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
+	k, err := w.pushKeys(r.Context())
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	devices, err := w.st.PushSubscriptions(r.Context())
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.render(rw, status, "settings", settingsData{chrome: w.chrome(r, "settings", rows), Form: form, Errors: errs, Saved: saved,
-		PasswordChanged: r.URL.Query().Get("password") != "", PasskeysOn: w.passkeysOn(), Passkeys: passkeyRows(keys), PublicURL: w.publicURL})
+		PasswordChanged: r.URL.Query().Get("password") != "", PasskeysOn: w.passkeysOn(), Passkeys: passkeyRows(keys), PublicURL: w.publicURL,
+		PushKey: k.Public(), PushDevices: pushRows(devices)})
 }
 
 func (w *Web) settingsPage(rw http.ResponseWriter, r *http.Request) {
@@ -359,7 +373,13 @@ func (w *Web) settingsTest(rw http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	now := w.now()
 	var results []testResult
-	for _, t := range alert.Targets(s, w.telegramBase) {
+	targets := alert.Targets(s, w.telegramBase)
+	if pt, err := alert.PushTarget(ctx, w.st, s, push.Subject(w.publicURL), now, log.Printf); err != nil {
+		log.Printf("test message to Push failed: %v", err)
+	} else if pt != nil {
+		targets = append(targets, *pt)
+	}
+	for _, t := range targets {
 		res := testResult{Name: t.Name}
 		if err := t.Send(ctx, alert.Message{Event: "test", Hub: w.promptHost, Since: now, At: now}); err != nil {
 			res.Error = err.Error()

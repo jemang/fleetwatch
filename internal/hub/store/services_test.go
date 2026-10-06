@@ -361,3 +361,23 @@ func TestDeleteServiceRemovesHistoryAndIncidents(t *testing.T) {
 		t.Fatalf("%d history or incident rows left after delete", n)
 	}
 }
+
+// A stale Resume (from a second tab) on a running service changes nothing:
+// it must not reset a DOWN state, or the next failure would read as a
+// recovery.
+func TestResumeOfARunningServiceIsANoOp(t *testing.T) {
+	s := open(t)
+	id, _ := s.CreateService(ctx, svc("a", "http://a", ""), t0)
+	if err := s.SaveCheck(ctx, id, "http://a", CheckState{State: "down", Since: 100, CheckedAt: 200, FailStreak: 3, Error: "timeout"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetServiceEnabled(ctx, id, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Service(ctx, id); got.State != "down" || got.StateSince != 100 || got.FailStreak != 3 {
+		t.Errorf("a stale resume reset the state: %+v", got)
+	}
+	if err := s.SetServiceEnabled(ctx, 999, true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing service: %v", err)
+	}
+}

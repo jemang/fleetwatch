@@ -34,6 +34,16 @@
       var ts = Number(el.dataset.for);
       el.textContent = ts ? 'for ' + ago(Math.max(0, now - ts)).replace(/ ago$/, '') : '';
     });
+    // A duration that keeps counting: "8 min 14 s", as the Hub writes ended ones.
+    document.querySelectorAll('[data-dur]').forEach(function (el) {
+      var s = Math.max(0, now - Number(el.dataset.dur));
+      var parts = [[Math.floor(s / 86400), 'd'], [Math.floor(s % 86400 / 3600), 'h'], [Math.floor(s % 3600 / 60), 'min'], [s % 60, 's']];
+      var i = 0;
+      while (i < 3 && parts[i][0] === 0) i++;
+      var out = parts[i][0] + ' ' + parts[i][1];
+      if (i < 3 && parts[i + 1][0] > 0) out += ' ' + parts[i + 1][0] + ' ' + parts[i + 1][1];
+      el.textContent = out;
+    });
     if (clock) {
       var d = new Date(now * 1000);
       clock.textContent = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm(d) + ':' + pad(d.getSeconds());
@@ -126,6 +136,16 @@
         search.blur();
       }
     });
+    // The Dashboard's results close on a click elsewhere and come back when
+    // the field is used again.
+    var results = document.getElementById('search-results');
+    if (results) {
+      document.addEventListener('click', function (e) {
+        if (!e.target.closest('.search-wrap')) results.hidden = true;
+      });
+      search.addEventListener('focus', function () { results.hidden = false; });
+      search.addEventListener('input', function () { results.hidden = false; });
+    }
   }
 
   // Charts: the time axis is printed in the viewer's time zone.
@@ -342,4 +362,7 @@
     var msg = e.target.dataset && e.target.dataset.confirm;
     if (msg && !confirm(msg)) e.preventDefault();
   });
+  // The service worker shows alert notifications; registering it on every
+  // page keeps it current.
+  if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(function () {});
 })();

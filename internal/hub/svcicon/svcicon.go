@@ -161,5 +161,9 @@ func Reason(err error) string {
 	if errors.As(err, &ue) {
 		err = ue.Err
 	}
+	// net/http quotes the whole Location header, query and all.
+	if strings.Contains(err.Error(), "failed to parse Location") {
+		return "bad redirect"
+	}
 	return err.Error()
 }

@@ -167,13 +167,17 @@ func certInfo(sv store.Service, now time.Time) CertInfo {
 	}
 	left := sv.CertExpiresAt - now.Unix()
 	if left <= 0 {
-		return CertInfo{Show: true, Level: "bad", Text: "expired " + plural(-left/86400, "day") + " ago"}
+		ago := plural(-left/86400, "day")
+		if -left < 86400 {
+			ago = "less than a day"
+		}
+		return CertInfo{Show: true, Level: "bad", Text: "expired " + ago + " ago"}
 	}
 	c := CertInfo{Show: true}
 	if days := left / 86400; days == 0 {
 		c.Text = "valid · expires within a day"
 	} else {
-		c.Text = "valid · expires in " + plural(days, "day") + " (" + time.Unix(sv.CertExpiresAt, 0).UTC().Format("2 Jan 2006") + ")"
+		c.Text = "valid · expires in " + plural(days, "day") + " (" + time.Unix(sv.CertExpiresAt, 0).Format("2 Jan 2006") + ")"
 	}
 	if left < 14*86400 {
 		c.Level = "warn"

@@ -193,8 +193,21 @@ var schemaV10 = []string{
 	`CREATE UNIQUE INDEX alerts_open_service ON alerts (service_id, kind, subject) WHERE resolved_at IS NULL AND service_id IS NOT NULL`,
 }
 
+var schemaV11 = []string{
+	// One row per browser with notifications on. The endpoint works like a
+	// password: it is never shown or logged.
+	`CREATE TABLE push_subscriptions (
+		id INTEGER PRIMARY KEY,
+		endpoint TEXT NOT NULL UNIQUE,
+		p256dh TEXT NOT NULL,
+		auth TEXT NOT NULL,
+		label TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		last_ok_at INTEGER)`,
+}
+
 // migrations[i] takes the schema from version i to version i+1.
-var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10}
+var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11}
 
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"

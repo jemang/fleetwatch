@@ -13,7 +13,7 @@ import (
 // recentShown is how many incidents the Dashboard lists.
 const recentShown = 8
 
-type DashTiles struct{ Total, Online, Down, Slow, Paused int }
+type DashTiles struct{ Total, Online, Down, Slow, Paused, Unchecked int }
 
 type NameLink struct{ Name, Href string }
 
@@ -30,6 +30,7 @@ type IncidentLine struct {
 	Service          string
 	Start, End       int64
 	Duration, Reason string
+	EndReason        string // "" when recovered
 }
 
 type DashPanel struct {
@@ -73,6 +74,9 @@ func buildDashboard(services []store.Service, rows []HostRow, alerts []store.Ale
 		case sv.State == "degraded":
 			d.Tiles.Online++
 			d.Tiles.Slow++
+			if _, ok := offline[sv.HostID]; ok && sv.HostID != 0 {
+				continue // its host's outage is the news
+			}
 			slow = append(slow, AttentionItem{Tag: "SLOW", Title: sv.Name, Href: href, Text: msText(sv.LastMs) + " response time"})
 		case sv.State == "down":
 			d.Tiles.Down++
@@ -85,6 +89,8 @@ func buildDashboard(services []store.Service, rows []HostRow, alerts []store.Ale
 				item.After = sv.LastError
 			}
 			down = append(down, item)
+		default:
+			d.Tiles.Unchecked++
 		}
 	}
 	hostIDs := make([]int64, 0, len(offline))
@@ -133,6 +139,9 @@ func buildDashboard(services []store.Service, rows []HostRow, alerts []store.Ale
 		line := IncidentLine{ServiceID: in.ServiceID, Service: in.ServiceName, Start: in.Started.Unix(), Reason: in.Reason}
 		if !in.Ended.IsZero() {
 			line.End, line.Duration = in.Ended.Unix(), durationText(in.Ended.Sub(in.Started))
+			if in.EndReason != "recovered" {
+				line.EndReason = in.EndReason
+			}
 		}
 		d.Incidents = append(d.Incidents, line)
 	}

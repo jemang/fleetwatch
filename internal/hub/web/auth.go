@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -136,6 +137,9 @@ func (w *Web) requireSession(next http.HandlerFunc) http.HandlerFunc {
 		switch {
 		case r.URL.Path == "/events":
 			http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		case strings.HasPrefix(r.URL.Path, "/push/") && r.Header.Get("Content-Type") == "application/json":
+			// The page script shows this text; a followed redirect would hand it the login page.
+			http.Error(rw, "Your login has expired. Log in again.", http.StatusUnauthorized)
 		case r.Header.Get("HX-Request") != "":
 			rw.Header().Set("HX-Redirect", "/login")
 		default:

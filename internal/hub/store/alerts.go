@@ -19,6 +19,7 @@ type Alert struct {
 	DismissedAt                   time.Time
 	NotifiedFire, NotifiedResolve bool
 	EndedQuietly                  bool // ended without a "resolved" message (EndAlertQuietly)
+	Skipped                       bool // ended before its firing message went out: no message at all (MarkSkipped)
 }
 
 func (a Alert) State() string {
@@ -34,7 +35,7 @@ func (a Alert) State() string {
 }
 
 const alertSelect = `SELECT a.id, COALESCE(a.host_id, 0), COALESCE(` + shownName + `, ''), COALESCE(a.service_id, 0), COALESCE(s.name, ''), COALESCE(s.url, ''),
-	a.kind, a.subject, a.detail, a.pending_since, a.fired_at, a.resolved_at, a.dismissed_at, a.notified_fire, a.notified_resolve = 1, a.notified_resolve = 2
+	a.kind, a.subject, a.detail, a.pending_since, a.fired_at, a.resolved_at, a.dismissed_at, a.notified_fire = 1, a.notified_resolve = 1, a.notified_resolve = 2, a.notified_fire = 2
 	FROM alerts a LEFT JOIN services s ON s.id = a.service_id LEFT JOIN hosts h ON h.id = COALESCE(a.host_id, s.host_id)`
 
 func unixOrZero(n sql.NullInt64) time.Time {
@@ -55,7 +56,7 @@ func (s *Store) queryAlerts(ctx context.Context, query string, args ...any) ([]A
 		var a Alert
 		var pending int64
 		var fired, resolved, dismissed sql.NullInt64
-		if err := rows.Scan(&a.ID, &a.HostID, &a.Host, &a.ServiceID, &a.Service, &a.ServiceURL, &a.Kind, &a.Subject, &a.Detail, &pending, &fired, &resolved, &dismissed, &a.NotifiedFire, &a.NotifiedResolve, &a.EndedQuietly); err != nil {
+		if err := rows.Scan(&a.ID, &a.HostID, &a.Host, &a.ServiceID, &a.Service, &a.ServiceURL, &a.Kind, &a.Subject, &a.Detail, &pending, &fired, &resolved, &dismissed, &a.NotifiedFire, &a.NotifiedResolve, &a.EndedQuietly, &a.Skipped); err != nil {
 			return nil, err
 		}
 		a.PendingSince, a.FiredAt, a.ResolvedAt, a.DismissedAt = time.Unix(pending, 0), unixOrZero(fired), unixOrZero(resolved), unixOrZero(dismissed)
@@ -175,6 +176,13 @@ func (s *Store) MarkNotified(ctx context.Context, id int64, event string) error 
 		col = "notified_resolve"
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE alerts SET `+col+` = 1 WHERE id = ?`, id)
+	return err
+}
+
+// MarkSkipped records that an alert ended before its firing message went
+// out, so neither message is sent (2 = skipped in both columns).
+func (s *Store) MarkSkipped(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE alerts SET notified_fire = 2, notified_resolve = 2 WHERE id = ?`, id)
 	return err
 }
 
