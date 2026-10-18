@@ -15,12 +15,6 @@ import (
 	"fleetwatch/internal/protocol"
 )
 
-const (
-	warnCPU      = alert.LimitCPU
-	warnRAM      = alert.LimitRAM
-	warnDisk     = alert.LimitDisk
-)
-
 // Online reports whether h's agent reported within the time its interval
 // allows (alert.StaleAfter).
 func Online(h store.Host, now time.Time) bool {
@@ -149,8 +143,8 @@ func usage(pct float64, warnAt int, tip string) Usage {
 func ratio(used, total uint64) float64 { return float64(used) / float64(total) * 100 }
 
 // BuildRow turns stored state into what one table row shows. An offline host
-// shows no metrics: they would be stale.
-func BuildRow(h store.Host, now time.Time) HostRow {
+// shows no metrics: they would be stale. Values at or above lim are amber.
+func BuildRow(h store.Host, now time.Time, lim alert.Limits) HostRow {
 	row := HostRow{ID: h.ID, Name: h.Name, IP: "–", Uptime: "–", Online: !h.Disabled && Online(h, now), Disabled: h.Disabled, Label: h.Label, Hostname: h.Hostname}
 	if !h.LastSeen.IsZero() {
 		row.LastSeenUnix = h.LastSeen.Unix()
@@ -168,10 +162,10 @@ func BuildRow(h store.Host, now time.Time) HostRow {
 		if h.Inventory != nil && h.Inventory.Cores > 0 {
 			tip += " of " + strconv.Itoa(h.Inventory.Cores) + " cores"
 		}
-		row.CPU = usage(*m.CPUPct, warnCPU, tip)
+		row.CPU = usage(*m.CPUPct, lim.CPU, tip)
 	}
 	if m.Mem != nil && m.Mem.Total > 0 {
-		row.RAM = usage(ratio(m.Mem.Used, m.Mem.Total), warnRAM, fmtBytes(m.Mem.Used)+" / "+fmtBytes(m.Mem.Total))
+		row.RAM = usage(ratio(m.Mem.Used, m.Mem.Total), lim.RAM, fmtBytes(m.Mem.Used)+" / "+fmtBytes(m.Mem.Total))
 	}
 	// The bar shows the fullest disk; the tooltip lists all, fullest first.
 	disks := make([]protocol.Disk, 0, len(m.Disks))
@@ -187,7 +181,7 @@ func BuildRow(h store.Host, now time.Time) HostRow {
 			p := ratio(d.Used, d.Total)
 			lines[i] = fmt.Sprintf("%s: %s / %s (%d%%)", d.Mount, fmtBytes(d.Used), fmtBytes(d.Total), int(math.Round(p)))
 		}
-		row.Disk = usage(ratio(disks[0].Used, disks[0].Total), warnDisk, strings.Join(lines, "\n"))
+		row.Disk = usage(ratio(disks[0].Used, disks[0].Total), lim.Disk, strings.Join(lines, "\n"))
 	}
 	if m.UptimeS > 0 {
 		row.Uptime, row.UptimeS = fmtUptime(m.UptimeS), m.UptimeS

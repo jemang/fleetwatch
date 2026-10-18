@@ -132,11 +132,11 @@ func validForm() url.Values {
 
 func TestAddServiceForm(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
-	hostID := h.addHost("pve-2")
+	hostID := h.addHost("pve-02")
 	h.addService("Old", "http://old", "Infra")
 	body := h.do("GET", "/services/new", h.login(), nil, true).Body.String()
 	for _, want := range []string{`<h2>Add Service</h2>`, `hx-post="/services"`, `hx-target="#service-body"`, `hx-swap="innerHTML"`,
-		`name="name"`, `name="url"`, `list="groups"`, `<option value="Infra">`, `<option value="` + itoa(hostID) + `">pve-2</option>`,
+		`name="name"`, `name="url"`, `list="groups"`, `<option value="Infra">`, `<option value="` + itoa(hostID) + `">pve-02</option>`,
 		`<option value="60" selected>60 s</option>`, `<details class="advanced">`, `name="timeout" type="number" value="10"`,
 		`name="selfsigned"`} {
 		if !strings.Contains(body, want) {
@@ -237,7 +237,7 @@ func TestServiceValidation(t *testing.T) {
 
 func TestEditService(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
-	hostID := h.addHost("pve-2")
+	hostID := h.addHost("pve-02")
 	var fetches atomic.Int32
 	h.web.iconFetch = func(context.Context, string, svcicon.Options) ([]byte, string, error) {
 		fetches.Add(1)
@@ -491,7 +491,7 @@ func TestServiceCheckedWithoutCards(t *testing.T) {
 func TestSettingsServiceRules(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	c := h.login()
-	body := h.do("GET", "/settings", c, nil, false).Body.String()
+	body := h.do("GET", "/settings?tab=services", c, nil, false).Body.String()
 	for _, want := range []string{`<legend>Service checks</legend>`, `name="svc_fail_n" value="3"`, `name="svc_ok_n" value="2"`, `name="svc_slow_ms" value="1000"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings page is missing %q", want)
@@ -554,7 +554,7 @@ func stripTags(s string) string { return regexp.MustCompile(`<[^>]*>`).ReplaceAl
 func TestServiceDetailPage(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	ctx := context.Background()
-	host := h.addHost("pve-2")
+	host := h.addHost("pve-02")
 	u := "https://portal.lan/login?token=SECRET"
 	id, _ := h.st.CreateService(ctx, store.Service{Name: "Portal", URL: u, Description: "customer portal",
 		HostID: host, IntervalS: 60, TimeoutS: 10, Enabled: true}, h.clock)
@@ -565,7 +565,7 @@ func TestServiceDetailPage(t *testing.T) {
 	body := h.do("GET", "/services/"+itoa(id), h.login(), nil, false).Body.String()
 	for _, want := range []string{
 		`<span class="crumb">Portal</span>`, `data-service="` + itoa(id) + `"`, `customer portal`,
-		`68 ms`, `every 60 s`, `expires in 73 days`, `href="/hosts/` + itoa(host) + `"`, `pve-2`,
+		`68 ms`, `every 60 s`, `expires in 73 days`, `href="/hosts/` + itoa(host) + `"`, `pve-02`,
 		`hx-get="/services/` + itoa(id) + `/panel"`, `sse:svc-` + itoa(id), `class="avail"`,
 		`9 min`, `timeout`, `https://portal.lan`, // incident: 540 s, its reason; the shown address
 	} {
@@ -679,7 +679,7 @@ func TestAlertsPageShowsServiceAlerts(t *testing.T) {
 func TestSettingsServiceAlerts(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	c := h.login()
-	body := h.do("GET", "/settings", c, nil, false).Body.String()
+	body := h.do("GET", "/settings?tab=services", c, nil, false).Body.String()
 	for _, want := range []string{`name="svc_cert_days" value="30, 14, 7, 1"`, `type="hidden" name="svc_slow_alert" value="0"`, `type="checkbox" name="svc_slow_alert" value="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings page is missing %q", want)

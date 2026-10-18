@@ -89,38 +89,44 @@
 {{template "side" .Nav}}
 <main>
   <p id="conn" class="conn" role="status" hidden>Live updates are disconnected. Reconnecting…</p>
+  <nav class="tabs" aria-label="Settings">{{range .Tabs}}<a href="/settings?tab={{.Key}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}</nav>
   {{if .Saved}}<p class="saved" role="status">Settings saved.</p>{{end}}
   {{if .PasswordChanged}}<p class="saved" role="status">Password changed. Other devices are logged out.</p>{{end}}
   {{range .Errors}}<p class="error" role="alert">{{.}}</p>{{end}}
+  {{if eq .Tab "alerts"}}
   <form class="settings" method="post" action="/settings">
+    <input type="hidden" name="tab" value="alerts">
     <fieldset>
-      <legend>Notifications</legend>
-      <p class="hint">FleetWatch sends one message when an alert starts and one when it ends.</p>
-      <label for="webhook_url">Webhook URL</label>
-      <input id="webhook_url" name="webhook_url" value="" type="url" placeholder="https://example.com/hook" autocomplete="off" spellcheck="false">
-      {{if .Form.WebhookHost}}<p class="stored"><span class="dot"></span>Stored: {{.Form.WebhookHost}}/… — leave the field empty to keep it<button name="clear_webhook_url" value="1">Remove</button></p>{{end}}
-      <label for="telegram_token">Telegram bot token</label>
-      <input id="telegram_token" name="telegram_token" type="password" placeholder="123456:ABC-DEF" autocomplete="off">
-      {{if .Form.TokenStored}}<p class="stored"><span class="dot"></span>A token is stored — leave the field empty to keep it<button name="clear_telegram_token" value="1">Remove</button></p>{{end}}
-      <label for="telegram_chat_id">Telegram chat ID</label>
-      <input id="telegram_chat_id" name="telegram_chat_id" value="{{.Form.ChatID}}" placeholder="-1001234567890" autocomplete="off" spellcheck="false">
+      <legend>Host alerts</legend>
+      <p class="hint">An alert fires when a value stays at or above its level for the minutes given; 0 minutes alerts on the first report. The host list and charts mark the same levels in amber.</p>
+      <div class="limits">
+        <span></span><span class="colhead">Alert at</span><span class="colhead">Lasting</span>
+        <span class="rowhead">CPU high</span>
+        <span class="unit"><input id="cpu_limit_pct" name="cpu_limit_pct" value="{{.Form.CPULimit}}" inputmode="numeric" required aria-label="CPU high: alert at, percent"><i>%</i></span>
+        <span class="unit"><input id="cpu_for_min" name="cpu_for_min" value="{{.Form.CPUFor}}" inputmode="numeric" required aria-label="CPU high: lasting, minutes"><i>min</i></span>
+        <span class="rowhead">Memory high</span>
+        <span class="unit"><input id="ram_limit_pct" name="ram_limit_pct" value="{{.Form.RAMLimit}}" inputmode="numeric" required aria-label="Memory high: alert at, percent"><i>%</i></span>
+        <span class="unit"><input id="ram_for_min" name="ram_for_min" value="{{.Form.RAMFor}}" inputmode="numeric" required aria-label="Memory high: lasting, minutes"><i>min</i></span>
+        <span class="rowhead">Disk full</span>
+        <span class="unit"><input id="disk_limit_pct" name="disk_limit_pct" value="{{.Form.DiskLimit}}" inputmode="numeric" required aria-label="Disk full: alert at, percent"><i>%</i></span>
+        <span class="unit"><input id="disk_for_min" name="disk_for_min" value="{{.Form.DiskFor}}" inputmode="numeric" required aria-label="Disk full: lasting, minutes"><i>min</i></span>
+      </div>
     </fieldset>
     <fieldset>
-      <legend>Waiting times</legend>
-      <p class="hint">A problem must last this long before its alert fires. Limits are fixed: CPU 90%, memory 90%, disk 85%. Agents from 0.2.1 take a new report interval with their next report; a host counts as offline after two intervals plus 15 seconds, and its alert fires after the missed reports below (at 30 seconds, 3 missed reports is 1 minute 45 seconds).</p>
+      <legend>Agents</legend>
+      <p class="hint">Agents from 0.2.1 take a new report interval with their next report. A host counts as offline after two intervals plus 15 seconds; its alert fires after the missed reports set here (at 30 seconds, 3 missed reports is 1 minute 45 seconds).</p>
       <div class="waits">
         <label for="report_interval_s">Agents report every<span>seconds, 10 to 600</span></label>
         <input id="report_interval_s" name="report_interval_s" value="{{.Form.ReportInterval}}" inputmode="numeric" required>
         <label for="offline_misses">Agent disconnected<span>missed reports in a row, 2 to 20</span></label>
         <input id="offline_misses" name="offline_misses" value="{{.Form.OfflineMisses}}" inputmode="numeric" required>
-        <label for="cpu_for_min">CPU high<span>minutes</span></label>
-        <input id="cpu_for_min" name="cpu_for_min" value="{{.Form.CPUFor}}" inputmode="numeric" required>
-        <label for="ram_for_min">Memory high<span>minutes</span></label>
-        <input id="ram_for_min" name="ram_for_min" value="{{.Form.RAMFor}}" inputmode="numeric" required>
-        <label for="disk_for_min">Disk full<span>minutes</span></label>
-        <input id="disk_for_min" name="disk_for_min" value="{{.Form.DiskFor}}" inputmode="numeric" required>
       </div>
     </fieldset>
+    <div class="formfoot"><button class="primary">Save</button></div>
+  </form>
+  {{else if eq .Tab "services"}}
+  <form class="settings" method="post" action="/settings">
+    <input type="hidden" name="tab" value="services">
     <fieldset>
       <legend>Service checks</legend>
       <p class="hint">One failed check is not an outage: a service is down only after this many failures in a row, and back after this many successes. Alerts go out when a service is down and when its certificate expires within the warning days.</p>
@@ -136,13 +142,42 @@
       </div>
       <label class="check svc-slow-alert"><input type="hidden" name="svc_slow_alert" value="0"><input type="checkbox" name="svc_slow_alert" value="1"{{if .Form.SvcSlowAlert}} checked{{end}}> Alert when a service is slow for 5 minutes</label>
     </fieldset>
+    <div class="formfoot"><button class="primary">Save</button></div>
+  </form>
+  {{else if eq .Tab "notifications"}}
+  <form class="settings" method="post" action="/settings">
+    <input type="hidden" name="tab" value="notifications">
+    <fieldset>
+      <legend>Notifications</legend>
+      <p class="hint">FleetWatch sends one message when an alert starts and one when it ends.</p>
+      <label for="webhook_url">Webhook URL</label>
+      <input id="webhook_url" name="webhook_url" value="" type="url" placeholder="https://example.com/hook" autocomplete="off" spellcheck="false">
+      {{if .Form.WebhookHost}}<p class="stored"><span class="dot"></span>Stored: {{.Form.WebhookHost}}/… — leave the field empty to keep it<button name="clear_webhook_url" value="1">Remove</button></p>{{end}}
+      <label for="telegram_token">Telegram bot token</label>
+      <input id="telegram_token" name="telegram_token" type="password" placeholder="123456:ABC-DEF" autocomplete="off">
+      {{if .Form.TokenStored}}<p class="stored"><span class="dot"></span>A token is stored — leave the field empty to keep it<button name="clear_telegram_token" value="1">Remove</button></p>{{end}}
+      <label for="telegram_chat_id">Telegram chat ID</label>
+      <input id="telegram_chat_id" name="telegram_chat_id" value="{{.Form.ChatID}}" placeholder="-1001234567890" autocomplete="off" spellcheck="false">
+    </fieldset>
     <div class="formfoot">
-      <button class="primary">Save settings</button>
+      <button class="primary">Save</button>
       <button type="button" hx-post="/settings/test" hx-target="#test-result" hx-swap="innerHTML" hx-disabled-elt="this">Send test message</button>
       <span id="test-result" class="testresult" role="status"></span>
     </div>
     <p class="hint">The test uses the saved settings. Save first.</p>
   </form>
+  <h2>Phone and browser notifications</h2>
+  <section id="push" class="push" data-key="{{.PushKey}}" data-url="{{.PublicURL}}">
+    <p class="hint">Alerts appear as notifications on this device, like other apps, also when FleetWatch is closed. On iPhone, add FleetWatch to the Home Screen and open it from there first.</p>
+    <p id="push-state" class="hint" role="status">Checking this device…</p>
+    <div class="formfoot"><button type="button" id="push-on" class="primary" hidden>Turn on for this device</button><button type="button" id="push-test" hidden>Send test</button><button type="button" id="push-off" hidden>Turn off</button><span id="push-msg" class="testresult" role="status"></span></div>
+    {{if .PushDevices}}<div class="scroll"><table class="hosts plain passkeys">
+      <thead><tr><th>Device</th><th>Added</th><th>Last delivered</th><th aria-label="Action"></th></tr></thead>
+      <tbody>{{range .PushDevices}}<tr><td>{{.Label}}</td><td class="when" data-time="{{.Created}}">{{.CreatedText}}</td><td class="when"{{if .OK}} data-time="{{.OK}}"{{end}}>{{if .OK}}{{.OKText}}{{else}}never{{end}}</td><td class="act"><form method="post" action="/push/{{.ID}}/delete"><button>Remove</button></form></td></tr>{{end}}</tbody>
+    </table></div>{{end}}
+  </section>
+  <script src="{{asset "/static/push.js"}}"></script>
+  {{else}}
   <form class="settings" method="post" action="/settings/password">
     <fieldset>
       <legend>Password</legend>
@@ -167,17 +202,7 @@
     <div class="formfoot"><input id="passkey-name" placeholder="Name, for example MacBook" maxlength="64" autocomplete="off"><button type="button" id="passkey-register" class="primary">Add passkey</button><span id="passkey-msg" class="testresult" role="status"></span></div>
   </form>
   <script src="{{asset "/static/passkey.js"}}"></script>{{else}}<p class="hint">Passkeys are off: browsers allow them only when the Hub is reached over HTTPS with a host name, and this Hub's address is {{.PublicURL}}. Set FLEETWATCH_PUBLIC_URL to an https:// address with a name, start the Hub again, and this section turns on.</p>{{end}}
-  <h2>Phone and browser notifications</h2>
-  <section id="push" class="push" data-key="{{.PushKey}}" data-url="{{.PublicURL}}">
-    <p class="hint">Alerts appear as notifications on this device, like other apps, also when FleetWatch is closed. On iPhone, add FleetWatch to the Home Screen and open it from there first.</p>
-    <p id="push-state" class="hint" role="status">Checking this device…</p>
-    <div class="formfoot"><button type="button" id="push-on" class="primary" hidden>Turn on for this device</button><button type="button" id="push-test" hidden>Send test</button><button type="button" id="push-off" hidden>Turn off</button><span id="push-msg" class="testresult" role="status"></span></div>
-    {{if .PushDevices}}<div class="scroll"><table class="hosts plain passkeys">
-      <thead><tr><th>Device</th><th>Added</th><th>Last delivered</th><th aria-label="Action"></th></tr></thead>
-      <tbody>{{range .PushDevices}}<tr><td>{{.Label}}</td><td class="when" data-time="{{.Created}}">{{.CreatedText}}</td><td class="when"{{if .OK}} data-time="{{.OK}}"{{end}}>{{if .OK}}{{.OKText}}{{else}}never{{end}}</td><td class="act"><form method="post" action="/push/{{.ID}}/delete"><button>Remove</button></form></td></tr>{{end}}</tbody>
-    </table></div>{{end}}
-  </section>
-  <script src="{{asset "/static/push.js"}}"></script>
+  {{end}}
 </main>
 {{template "foot" .}}
 {{template "scripts"}}

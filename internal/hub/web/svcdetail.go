@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/store"
 )
 
@@ -51,7 +52,7 @@ func (w *Web) serviceDetailData(r *http.Request, sv store.Service) (serviceDetai
 	d.Bar = availabilityBar(rows, now)
 	if sv.HostID != 0 {
 		if h, err := w.st.Host(ctx, sv.HostID); err == nil {
-			d.HostOffline = BuildRow(h, now).Status() == "offline"
+			d.HostOffline = BuildRow(h, now, alert.DefaultLimits).Status() == "offline"
 		}
 	}
 	inc, err := w.st.Incidents(ctx, sv.ID, 10)

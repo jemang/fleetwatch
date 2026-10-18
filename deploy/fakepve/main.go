@@ -74,8 +74,8 @@ func main() {
 		},
 	}
 	lxcIfs := map[string]string{
-		"101": `{"data":[{"name":"lo","inet":"127.0.0.1/8","inet6":"::1/128"},{"name":"eth0","inet":"192.168.10.21/24","inet6":"fe80::1/64"}]}`,
-		"102": `{"data":[{"name":"lo","inet":"127.0.0.1/8"},{"name":"eth0","inet":"192.168.10.22/24"}]}`,
+		"101": `{"data":[{"name":"lo","inet":"127.0.0.1/8","inet6":"::1/128"},{"name":"eth0","inet":"192.168.1.21/24","inet6":"fe80::1/64"}]}`,
+		"102": `{"data":[{"name":"lo","inet":"127.0.0.1/8"},{"name":"eth0","inet":"192.168.1.22/24"}]}`,
 	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "PVEAPIToken="+*token {

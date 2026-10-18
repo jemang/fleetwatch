@@ -21,6 +21,9 @@ const (
 	UnauthorizedRetry    = 5 * time.Minute
 	MaxUnauthorizedRetry = time.Hour
 	MaxBackoff           = 60 * time.Second
+	// FirstRetry with its jitter stays above the Hub's 5 s minimum between
+	// reports, in case the failed send was accepted and only the reply was lost.
+	FirstRetry = 10 * time.Second
 	// An interval the Hub asks for outside these bounds is ignored.
 	MinHubInterval = 5 * time.Second
 	MaxHubInterval = time.Hour
@@ -116,12 +119,16 @@ func (r *Runner) Step(ctx context.Context) time.Duration {
 	return r.Jitter(d)
 }
 
+// backoff is the wait after failures sends that failed in a row: FirstRetry,
+// doubling, never longer than the interval or MaxBackoff. A dropped connection
+// usually works on the next try, and waiting longer than the interval would
+// make two failures look like an outage to the Hub.
 func backoff(interval time.Duration, failures int) time.Duration {
-	d := interval
-	for i := 1; i < failures && d < MaxBackoff; i++ {
+	d := FirstRetry
+	for i := 1; i < failures && d < interval; i++ {
 		d *= 2
 	}
-	return min(d, MaxBackoff)
+	return min(d, interval, MaxBackoff)
 }
 
 func DefaultJitter(d time.Duration) time.Duration {

@@ -82,7 +82,7 @@ func TestSettingsPushSection(t *testing.T) {
 	c := h.login()
 	ctx := context.Background()
 	h.st.SavePushSubscription(ctx, store.PushSubscription{Endpoint: "https://push.example/secret-y", P256dh: "k", Auth: "a", Label: "Safari on iPhone"}, h.clock)
-	page := h.do("GET", "/settings", c, nil, false).Body.String()
+	page := h.do("GET", "/settings?tab=notifications", c, nil, false).Body.String()
 	set, _ := h.st.Settings(ctx)
 	key := set["push_vapid_key"]
 	if key == "" || strings.Contains(page, key) {
@@ -102,7 +102,7 @@ func TestSettingsPushSection(t *testing.T) {
 		t.Error("a Settings save changed the key")
 	}
 	subs, _ := h.st.PushSubscriptions(ctx)
-	if w := h.do("POST", "/push/"+itoa(subs[0].ID)+"/delete", c, url.Values{}, false); w.Code != http.StatusSeeOther {
+	if w := h.do("POST", "/push/"+itoa(subs[0].ID)+"/delete", c, url.Values{}, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/settings?tab=notifications" {
 		t.Errorf("delete: %d", w.Code)
 	}
 	if w := h.do("POST", "/push/"+itoa(subs[0].ID)+"/delete", c, url.Values{}, false); w.Code != http.StatusNotFound {

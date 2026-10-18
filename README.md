@@ -98,7 +98,7 @@ journalctl -u fleetwatch-agent    # the agent's log
 
 ## Passkeys
 
-In **Settings → Passkeys** the administrator can add a passkey (Touch ID, Windows Hello, a hardware key, a password manager) and then log in with **Use passkey** on the login page. The password stays as the second way in. Browsers allow passkeys only over HTTPS with a host name (`localhost` over plain HTTP works for development), so `FLEETWATCH_PUBLIC_URL` must be an `https://` address with a name; otherwise the section explains why passkeys are off.
+In **Settings → Security** the administrator can add a passkey (Touch ID, Windows Hello, a hardware key, a password manager) and then log in with **Use passkey** on the login page. The password stays as the second way in. Browsers allow passkeys only over HTTPS with a host name (`localhost` over plain HTTP works for development), so `FLEETWATCH_PUBLIC_URL` must be an `https://` address with a name; otherwise the section explains why passkeys are off.
 
 ![Login page](docs/img/login.png)
 
@@ -106,9 +106,9 @@ In **Settings → Passkeys** the administrator can add a passkey (Touch ID, Wind
 
 - **Dashboard** (`/`) – service and host counts, what needs attention now (offline hosts with the services they take down, down services, firing alerts, slow services), the latest incidents, and a search over services and hosts.
 - **Services** – the web applications FleetWatch checks over HTTP/HTTPS: status, response time, uptime over 24 h / 7 d / 30 d, incidents and certificate expiry. While a host is offline, its services' own DOWN messages are held back; the host's message lists them.
-- **Hosts** (`/hosts`) – all servers; a host name opens its page with disks, network, services, Proxmox guests and history.
-- **Alerts** – what is wrong now and what was, for hosts and services. **Settings** holds the webhook and Telegram targets, the waiting times and the service check rules. The webhook body carries `event`, `host`, `kind`, `subject`, `detail`, `since`, `at`, `hub`, `text`, `service`, `service_id`, `service_host` (domain only) and `host_services` (the services on a host that went offline).
-- **Phone and browser notifications** – in Settings, "Turn on for this device" makes alerts appear as system notifications, also while FleetWatch is closed. It needs the Hub on HTTPS (or `localhost`); on iPhone, add FleetWatch to the Home Screen and open it from there first (iOS 16.4 or later).
+- **Hosts** (`/hosts`) – all servers; a host name opens its page with disks, network, services, Proxmox guests and history. A host page can give that server its own report interval (10–600 s); empty follows the Hub setting.
+- **Alerts** – what is wrong now and what was, for hosts and services. **Settings** has four tabs: **Alerts** (the CPU, memory and disk levels and how many minutes they must last, how often agents report, and how many missed reports raise "Agent disconnected"), **Services** (check rules), **Notifications** (webhook, Telegram, phone and browser) and **Security** (password, passkeys). The host list and charts mark the alert levels in amber. The webhook body carries `event`, `host`, `kind`, `subject`, `detail`, `since`, `at`, `hub`, `text`, `service`, `service_id`, `service_host` (domain only) and `host_services` (the services on a host that went offline).
+- **Phone and browser notifications** – in Settings → Notifications, "Turn on for this device" makes alerts appear as system notifications, also while FleetWatch is closed. It needs the Hub on HTTPS (or `localhost`); on iPhone, add FleetWatch to the Home Screen and open it from there first (iOS 16.4 or later).
 - **Logs** – the Hub's own log, live like `tail -f`: every agent report, logins, enrollments, alerts and failures. The last 3000 lines since the Hub started; `docker logs` keeps the rest (capped at 3 × 10 MB by the Compose file).
 - Host page, section **Agent**: *Replace credential* issues a new credential (the old one stops working when the new one is issued); *Disable agent* makes the Hub refuse a server's reports.
 

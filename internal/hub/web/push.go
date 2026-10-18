@@ -164,7 +164,7 @@ func (w *Web) pushDelete(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("push: device %d removed", id)
-	http.Redirect(rw, r, "/settings", http.StatusSeeOther)
+	http.Redirect(rw, r, "/settings?tab=notifications", http.StatusSeeOther)
 }
 
 // PushRow is one device as Settings lists it.

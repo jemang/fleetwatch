@@ -283,3 +283,27 @@ func TestAcceptReportKeepsTheReportInterval(t *testing.T) {
 		t.Errorf("after a report without interval_s: %+v", hs)
 	}
 }
+
+func TestHostReportIntervalOverride(t *testing.T) {
+	s := open(t)
+	_, hostID := enrolled(t, s)
+	if a, _ := s.AgentByTokenHash(ctx, "agent-hash"); a.HostInterval != 0 {
+		t.Errorf("a new host follows the Hub setting: %v", a.HostInterval)
+	}
+	if err := s.SetHostReportInterval(ctx, hostID, 120); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := s.AgentByTokenHash(ctx, "agent-hash"); a.HostInterval != 2*time.Minute {
+		t.Errorf("agent sees %v, want 2m", a.HostInterval)
+	}
+	if h, _ := s.Host(ctx, hostID); h.IntervalOverride != 2*time.Minute || h.ReportInterval != 0 {
+		t.Errorf("host: override %v, told %v; want 2m and 0 until a report", h.IntervalOverride, h.ReportInterval)
+	}
+	s.SetHostReportInterval(ctx, hostID, 0)
+	if hs, _ := s.Hosts(ctx); hs[0].IntervalOverride != 0 {
+		t.Errorf("0 goes back to the Hub setting: %v", hs[0].IntervalOverride)
+	}
+	if err := s.SetHostReportInterval(ctx, 999, 60); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown host: %v", err)
+	}
+}

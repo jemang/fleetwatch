@@ -32,7 +32,7 @@ func TestReadNetSkipsVirtualInterfacesWithoutAddress(t *testing.T) {
 	writeInto(t, root, "sys/class/net/enp2s0/device", "")
 	addrs := func() (map[string][]netip.Addr, error) {
 		return map[string][]netip.Addr{
-			"vmbr0":      {netip.MustParseAddr("192.168.10.5"), netip.MustParseAddr("fe80::1")},
+			"vmbr0":      {netip.MustParseAddr("192.168.1.5"), netip.MustParseAddr("fe80::1")},
 			"tailscale0": {netip.MustParseAddr("100.64.0.7")},
 			"tap100i0":   {netip.MustParseAddr("fe80::2")},
 			"vmbr1":      nil,
@@ -72,7 +72,7 @@ func TestDefaultRouteIfacePicksLowestMetric(t *testing.T) {
 func TestReadInterfaces(t *testing.T) {
 	addrs := func() (map[string][]netip.Addr, error) {
 		return map[string][]netip.Addr{
-			"eth0":       {netip.MustParseAddr("192.168.10.10"), netip.MustParseAddr("fe80::1"), netip.MustParseAddr("2001:db8::10")},
+			"eth0":       {netip.MustParseAddr("192.168.1.10"), netip.MustParseAddr("fe80::1"), netip.MustParseAddr("2001:db8::10")},
 			"tailscale0": {netip.MustParseAddr("100.64.0.5")},
 			"dummy0":     nil,
 		}, nil
@@ -85,7 +85,7 @@ func TestReadInterfaces(t *testing.T) {
 		t.Fatalf("interfaces must be sorted by name: %+v", got)
 	}
 	eth := got[1]
-	if !eth.DefaultRoute || !reflect.DeepEqual(eth.IPv4, []string{"192.168.10.10"}) || !reflect.DeepEqual(eth.IPv6, []string{"2001:db8::10"}) {
+	if !eth.DefaultRoute || !reflect.DeepEqual(eth.IPv4, []string{"192.168.1.10"}) || !reflect.DeepEqual(eth.IPv6, []string{"2001:db8::10"}) {
 		t.Errorf("eth0 = %+v (link-local addresses must be left out)", eth)
 	}
 	if got[0].IPv4 == nil || got[0].IPv6 == nil {

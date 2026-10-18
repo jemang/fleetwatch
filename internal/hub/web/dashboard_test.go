@@ -28,7 +28,7 @@ func TestDashboardEmpty(t *testing.T) {
 func TestDashboardCountsAndAttention(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	ctx := context.Background()
-	host := h.addRichHost("pve-2")
+	host := h.addRichHost("pve-02")
 	save := func(id int64, url string, c store.CheckState) {
 		t.Helper()
 		c.CheckedAt = h.clock.Unix()
@@ -48,14 +48,14 @@ func TestDashboardCountsAndAttention(t *testing.T) {
 	save(under, "https://pve.lan", store.CheckState{State: "down", Since: h.clock.Unix(), Error: "timeout"})
 	cert := h.addService("Wiki", "https://wiki.lan", "")
 	h.st.CreateServiceAlert(ctx, cert, "svc_cert", "30@1", "28 days, 3 Nov 2026", h.clock, true)
-	h.clock = h.clock.Add(2 * time.Minute) // pve-2 stops reporting
+	h.clock = h.clock.Add(2 * time.Minute) // pve-02 stops reporting
 
 	body := h.do("GET", "/", h.login(), nil, false).Body.String()
 	if strings.Contains(stripTags(body), "SECRET") {
 		t.Error("the dashboard shows a URL query")
 	}
 	att := body[strings.Index(body, `class="attention"`):]
-	order := []string{"[OFFLINE]", "1 service unavailable because host pve-2 is offline", ">Proxmox<", "[DOWN]", ">Portal<", "timeout", "[ALERT]", "Certificate expiring", "Wiki", "[SLOW]", ">HN<", "1,842 ms response time"}
+	order := []string{"[OFFLINE]", "1 service unavailable because host pve-02 is offline", ">Proxmox<", "[DOWN]", ">Portal<", "timeout", "[ALERT]", "Certificate expiring", "Wiki", "[SLOW]", ">HN<", "1,842 ms response time"}
 	last := -1
 	for _, s := range order {
 		i := strings.Index(att, s)
@@ -148,7 +148,7 @@ func TestSearchServicesAndHosts(t *testing.T) {
 func TestHostPageListsItsServices(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	ctx := context.Background()
-	host := h.addHost("pve-2")
+	host := h.addHost("pve-02")
 	bare := h.addHost("bare")
 	a, _ := h.st.CreateService(ctx, store.Service{Name: "Proxmox", URL: "https://pve.lan", HostID: host, IntervalS: 60, TimeoutS: 10, Enabled: true}, h.clock)
 	h.st.SaveCheck(ctx, a, "https://pve.lan", store.CheckState{State: "online", OK: true, Ms: 68, CheckedAt: h.clock.Unix()})
@@ -174,7 +174,7 @@ func TestHostPageListsItsServices(t *testing.T) {
 	}
 	h.clock = h.clock.Add(2 * time.Minute)
 	svc := h.do("GET", "/services/"+itoa(a), c, nil, false).Body.String()
-	if !strings.Contains(svc, `pve-2</a> <span class="offline">· offline</span>`) {
+	if !strings.Contains(svc, `pve-02</a> <span class="offline">· offline</span>`) {
 		t.Error("the service page marks an offline host")
 	}
 }
@@ -194,13 +194,13 @@ func TestDashboardPanelRedrawIsBounded(t *testing.T) {
 func TestDashboardSlowUnderOfflineHostAndPausedIncident(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	ctx := context.Background()
-	host := h.addRichHost("pve-2")
+	host := h.addRichHost("pve-02")
 	id, _ := h.st.CreateService(ctx, store.Service{Name: "Proxmox", URL: "https://pve.lan", HostID: host, IntervalS: 60, TimeoutS: 10, Enabled: true}, h.clock)
 	h.st.SaveCheck(ctx, id, "https://pve.lan", store.CheckState{State: "degraded", OK: true, Ms: 1500, CheckedAt: h.clock.Unix()})
 	p := h.addService("Portal", "https://portal.lan", "")
 	h.st.SaveCheck(ctx, p, "https://portal.lan", store.CheckState{State: "down", Since: h.clock.Unix() - 60, CheckedAt: h.clock.Unix(), Error: "timeout"})
 	h.st.SetServiceEnabled(ctx, p, false)
-	h.clock = h.clock.Add(2 * time.Minute) // pve-2 stops reporting
+	h.clock = h.clock.Add(2 * time.Minute) // pve-02 stops reporting
 	body := h.do("GET", "/dashboard/panel", h.login(), nil, true).Body.String()
 	if strings.Contains(body, "[SLOW]") {
 		t.Error("a slow service under an offline host is listed as [SLOW]")
@@ -216,12 +216,12 @@ func TestDashboardAlertChart(t *testing.T) {
 	if body := h.do("GET", "/", h.login(), nil, false).Body.String(); !strings.Contains(body, "No alerts fired") {
 		t.Error("a Hub without alerts says so in the chart's title")
 	}
-	host := h.addHost("labs")
+	host := h.addHost("web-01")
 	h.st.CreateAlert(ctx, host, "host_offline", "", "", h.clock.Add(-time.Hour), true)
 	h.st.CreateAlert(ctx, host, "cpu_high", "", "", h.clock.Add(-40*24*time.Hour), true) // outside the 30 days
 	rec := h.do("GET", "/dashboard/panel", h.login(), nil, true)
 	body := rec.Body.String()
-	for _, want := range []string{`class="chart-box alert-chart"`, `1 alert</span>`, `1 offline · `, `0 resource`, `<rect class="offline"`, "Most alerts: <b>labs</b> 1"} {
+	for _, want := range []string{`class="chart-box alert-chart"`, `1 alert</span>`, `1 offline · `, `0 resource`, `<rect class="offline"`, "Most alerts: <b>web-01</b> 1"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("alert chart is missing %q\n%s", want, stripTags(body))
 		}

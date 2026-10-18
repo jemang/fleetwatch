@@ -338,7 +338,7 @@ func (h *harness) addRichHost(name string) int64 {
 		Net:      []protocol.NetIf{{Name: "eth0", State: "up", RxBytes: 1536, TxBytes: 3 * gib}},
 		Services: []protocol.Service{{Name: "nginx.service", Status: "running"}, {Name: "db<i>.service", Status: "failed"}},
 		Proxmox: &protocol.Proxmox{Detected: true, Configured: true, Version: "8.2.4", Node: "pve-01",
-			Guests:  []protocol.Guest{{ID: 101, Type: "lxc", Name: "nginx<u>", Status: "running", CPUs: 2, MemMax: 512 << 20, IPs: []string{"192.168.10.21"}}, {ID: 115, Type: "qemu", Name: "db", Status: "stopped"}},
+			Guests:  []protocol.Guest{{ID: 101, Type: "lxc", Name: "nginx<u>", Status: "running", CPUs: 2, MemMax: 512 << 20, IPs: []string{"192.168.1.21"}}, {ID: 115, Type: "qemu", Name: "db", Status: "stopped"}},
 			Storage: []protocol.Storage{{Name: "local", Type: "dir", Active: true, Total: 100 * gib, Used: 40 * gib}}},
 	}, Inventory: &protocol.Inventory{Hostname: name, OS: "Debian GNU/Linux 12 (bookworm)", Kernel: "6.1.0-18-amd64", CPUModel: "Test CPU", Cores: 8,
 		Interfaces: []protocol.Interface{{Name: "eth0", DefaultRoute: true, IPv4: []string{"10.0.0.5"}, IPv6: []string{"2001:db8::5"}}}}}
@@ -368,7 +368,7 @@ func TestHostDetailPage(t *testing.T) {
 		"eth0", "10.0.0.5", "2001:db8::5", "1.5 KiB", "3.0 GiB",
 		`sse-connect="/events?host=1"`, `hx-get="/hosts/1/charts?range=1h"`, `href="/"`,
 		"Services", "nginx.service", `data-s="running"`, "db&lt;i&gt;.service", `data-s="failed"`,
-		"Proxmox VE 8.2.4", "Guests", "nginx&lt;u&gt;", "LXC", "192.168.10.21", "Storage", "40.0 GiB / 100.0 GiB",
+		"Proxmox VE 8.2.4", "Guests", "nginx&lt;u&gt;", "LXC", "192.168.1.21", "Storage", "40.0 GiB / 100.0 GiB",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page is missing %q", want)
@@ -605,8 +605,9 @@ func TestSettingsPage(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	c := h.login()
 	ctx := context.Background()
-	body := h.do("GET", "/settings", c, nil, false).Body.String()
-	for _, want := range []string{`name="report_interval_s" value="30"`, `name="offline_misses" value="3"`, `name="cpu_for_min" value="5"`, `name="ram_for_min" value="5"`, `name="disk_for_min" value="2"`, `name="webhook_url" value=""`} {
+	body := h.do("GET", "/settings", c, nil, false).Body.String() + h.do("GET", "/settings?tab=notifications", c, nil, false).Body.String()
+	for _, want := range []string{`name="report_interval_s" value="30"`, `name="offline_misses" value="3"`, `name="cpu_for_min" value="5"`, `name="ram_for_min" value="5"`, `name="disk_for_min" value="2"`,
+		`name="cpu_limit_pct" value="90"`, `name="ram_limit_pct" value="90"`, `name="disk_limit_pct" value="85"`, `name="webhook_url" value=""`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings page is missing %q", want)
 		}
@@ -620,7 +621,7 @@ func TestSettingsPage(t *testing.T) {
 	if got["webhook_url"] != "https://hooks.example.com/x" || got["telegram_token"] != "123:secret" || got["offline_misses"] != "5" || got["ram_for_min"] != "0" {
 		t.Errorf("stored settings = %v", got)
 	}
-	body = h.do("GET", "/settings", c, nil, false).Body.String()
+	body = h.do("GET", "/settings?tab=notifications", c, nil, false).Body.String()
 	if strings.Contains(body, "123:secret") || !strings.Contains(body, "A token is stored") {
 		t.Error("the stored Telegram token must never be shown again, only that one exists")
 	}
@@ -693,6 +694,80 @@ func TestSettingsReportInterval(t *testing.T) {
 	h.do("POST", "/settings", c, form, false)
 	if got, _ := h.st.Settings(context.Background()); got["report_interval_s"] != "60" || got["offline_misses"] != "4" {
 		t.Errorf("after a form without the field: %v", got)
+	}
+}
+
+func TestSettingsTabs(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	c := h.login()
+	// Each tab shows only its own fields; an unknown tab is the first one.
+	tabs := map[string]struct{ has, lacks []string }{
+		"":              {[]string{`name="cpu_limit_pct"`, `name="offline_misses"`, `name="report_interval_s"`}, []string{`name="webhook_url"`, `name="svc_fail_n"`, `id="pw_current"`}},
+		"?tab=alerts":   {[]string{`name="cpu_limit_pct"`}, []string{`name="webhook_url"`}},
+		"?tab=junk":     {[]string{`name="cpu_limit_pct"`}, []string{`name="webhook_url"`}},
+		"?tab=services": {[]string{`name="svc_fail_n"`, `name="svc_cert_days"`}, []string{`name="cpu_limit_pct"`, `name="webhook_url"`}},
+		"?tab=notifications": {[]string{`name="webhook_url"`, `name="telegram_chat_id"`, `id="push"`, `hx-post="/settings/test"`},
+			[]string{`name="cpu_limit_pct"`, `name="svc_fail_n"`}},
+		"?tab=security": {[]string{`id="pw_current"`, "Passkeys"}, []string{`name="cpu_limit_pct"`, `name="webhook_url"`}},
+	}
+	for q, want := range tabs {
+		body := h.do("GET", "/settings"+q, c, nil, false).Body.String()
+		for _, s := range want.has {
+			if !strings.Contains(body, s) {
+				t.Errorf("/settings%s lacks %s", q, s)
+			}
+		}
+		for _, s := range want.lacks {
+			if strings.Contains(body, s) {
+				t.Errorf("/settings%s must not show %s", q, s)
+			}
+		}
+		active := "alerts"
+		if k := strings.TrimPrefix(q, "?tab="); k == "services" || k == "notifications" || k == "security" {
+			active = k
+		}
+		if !strings.Contains(body, `<a href="/settings?tab=`+active+`" aria-current="page">`) {
+			t.Errorf("/settings%s: tab %s is not marked as the current one", q, active)
+		}
+	}
+
+	// A tab saves only its own fields; the others keep what is stored.
+	ctx := context.Background()
+	h.st.SetSettings(ctx, map[string]string{"webhook_url": "https://hooks.example.com/x", "telegram_chat_id": "-100", "svc_fail_n": "4"})
+	f := url.Values{"tab": {"alerts"}, "cpu_limit_pct": {"80"}, "ram_limit_pct": {"95"}, "disk_limit_pct": {"70"}, "cpu_for_min": {"1"}, "ram_for_min": {"5"}, "disk_for_min": {"2"},
+		"report_interval_s": {"30"}, "offline_misses": {"3"}}
+	w := h.do("POST", "/settings", c, f, false)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/settings?tab=alerts&saved=1" {
+		t.Fatalf("save: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	got, _ := h.st.Settings(ctx)
+	if got["cpu_limit_pct"] != "80" || got["ram_limit_pct"] != "95" || got["disk_limit_pct"] != "70" || got["cpu_for_min"] != "1" ||
+		got["webhook_url"] != "https://hooks.example.com/x" || got["telegram_chat_id"] != "-100" || got["svc_fail_n"] != "4" {
+		t.Errorf("after saving the alerts tab: %v", got)
+	}
+	if body := h.do("GET", "/settings?tab=alerts&saved=1", c, nil, false).Body.String(); !strings.Contains(body, "Settings saved.") || !strings.Contains(body, `name="cpu_limit_pct" value="80"`) {
+		t.Error("the alerts tab must say it saved and show the new level")
+	}
+	// The services tab returns to itself; an empty chat ID sent by the
+	// notifications tab still clears it.
+	if w := h.do("POST", "/settings", c, url.Values{"tab": {"services"}, "svc_fail_n": {"2"}}, false); w.Header().Get("Location") != "/settings?tab=services&saved=1" {
+		t.Errorf("services save went to %q", w.Header().Get("Location"))
+	}
+	h.do("POST", "/settings", c, url.Values{"tab": {"notifications"}, "telegram_chat_id": {""}, "webhook_url": {""}}, false)
+	if got, _ := h.st.Settings(ctx); got["telegram_chat_id"] != "" || got["webhook_url"] != "https://hooks.example.com/x" || got["svc_fail_n"] != "2" {
+		t.Errorf("after the notifications tab: %v", got)
+	}
+
+	for key, bad := range map[string]string{"cpu_limit_pct": "0", "ram_limit_pct": "101", "disk_limit_pct": "x"} {
+		f := url.Values{"tab": {"alerts"}, key: {bad}}
+		w := h.do("POST", "/settings", c, f, false)
+		body := w.Body.String()
+		if w.Code != http.StatusUnprocessableEntity || !strings.Contains(body, "enter a whole percent from 1 to 100") || !strings.Contains(body, `<a href="/settings?tab=alerts" aria-current="page">`) {
+			t.Errorf("%s=%s: %d, want 422 on the alerts tab with the percent message", key, bad, w.Code)
+		}
+	}
+	if got, _ := h.st.Settings(ctx); got["cpu_limit_pct"] != "80" {
+		t.Errorf("a rejected form changed the stored level: %v", got)
 	}
 }
 
@@ -847,6 +922,59 @@ func TestLogoOnEveryPageAndAsIcon(t *testing.T) {
 	w := h.do("GET", "/static/logo.svg", nil, nil, false)
 	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "image/svg+xml") || !strings.Contains(w.Body.String(), "<svg") {
 		t.Errorf("logo.svg: %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+func TestHostReportInterval(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	id := h.addHost("pve")
+	c := h.login()
+	ctx := context.Background()
+	page := "/hosts/" + strconv.FormatInt(id, 10)
+	logged := func() string {
+		var out []string
+		for _, ln := range h.logs.Lines() {
+			out = append(out, ln.Text)
+		}
+		return strings.Join(out, "\n")
+	}
+	body := h.do("GET", page, c, nil, false).Body.String()
+	for _, want := range []string{`action="` + page + `/interval"`, `name="report_interval_s"`, `placeholder="30"`, "follows the Hub setting: every 30 seconds"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("host page lacks %q", want)
+		}
+	}
+	// addHost's agent sends no interval: it is older than 0.2.1.
+	if !strings.Contains(body, "older than 0.2.1") {
+		t.Error("the page must say this agent ignores the setting")
+	}
+	if w := h.do("POST", page+"/interval", nil, url.Values{"report_interval_s": {"60"}}, false); w.Header().Get("Location") != "/login" {
+		t.Error("setting the interval needs a session")
+	}
+	for _, bad := range []string{"5", "601", "abc", "-1"} {
+		if w := h.do("POST", page+"/interval", c, url.Values{"report_interval_s": {bad}}, false); w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%q: status %d, want 422", bad, w.Code)
+		}
+	}
+	if w := h.do("POST", page+"/interval", c, url.Values{"report_interval_s": {" 120 "}}, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != page {
+		t.Fatalf("save: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if host, _ := h.st.Host(ctx, id); host.IntervalOverride != 2*time.Minute {
+		t.Errorf("stored override %v, want 2m", host.IntervalOverride)
+	}
+	body = h.do("GET", page, c, nil, false).Body.String()
+	if !strings.Contains(body, `value="120"`) || !strings.Contains(body, "reports every 120 seconds, set here") {
+		t.Error("the page must show the server's own interval")
+	}
+	if !strings.Contains(logged(), "report interval of pve set to 120 seconds") {
+		t.Errorf("no log line for the change: %s", logged())
+	}
+	h.do("POST", page+"/interval", c, url.Values{"report_interval_s": {""}}, false)
+	if host, _ := h.st.Host(ctx, id); host.IntervalOverride != 0 {
+		t.Errorf("an empty field must go back to the Hub setting, got %v", host.IntervalOverride)
+	}
+	if !strings.Contains(logged(), "report interval of pve back to the Hub setting") {
+		t.Errorf("no log line for the reset: %s", logged())
 	}
 }
 

@@ -212,8 +212,20 @@ var schemaV12 = []string{
 	`ALTER TABLE agents ADD COLUMN report_interval_s INTEGER NOT NULL DEFAULT 0`,
 }
 
+var schemaV13 = []string{
+	// The report interval set for this server on its host page, in seconds;
+	// 0 follows the Hub setting. On hosts, so a new credential keeps it.
+	`ALTER TABLE hosts ADD COLUMN report_interval_s INTEGER NOT NULL DEFAULT 0`,
+}
+
+var schemaV14 = []string{
+	// The minute rollup and cleanup filter history by resolution and time
+	// across all hosts; without this index each of them reads the whole table.
+	`CREATE INDEX host_metrics_res_ts ON host_metrics (res, ts)`,
+}
+
 // migrations[i] takes the schema from version i to version i+1.
-var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11, schemaV12}
+var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11, schemaV12, schemaV13, schemaV14}
 
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"

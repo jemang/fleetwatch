@@ -215,7 +215,7 @@ func (w *Web) passkeyDelete(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("passkey %d removed", id)
-	http.Redirect(rw, r, "/settings", http.StatusSeeOther)
+	http.Redirect(rw, r, "/settings?tab=security", http.StatusSeeOther)
 }
 
 func (w *Web) passkeyLoginBegin(rw http.ResponseWriter, r *http.Request) {

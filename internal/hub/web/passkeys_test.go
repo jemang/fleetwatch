@@ -32,7 +32,7 @@ func TestPasskeysOffWithoutHTTPSAndHostName(t *testing.T) {
 	for _, publicURL := range []string{"http://192.168.1.5:8080", "https://10.0.0.1", "http://hub.example.com"} {
 		h := newHarness(t, publicURL, false)
 		c := h.login()
-		if body := h.do("GET", "/settings", c, nil, false).Body.String(); !strings.Contains(body, "Passkeys are off") || strings.Contains(body, `id="passkey-add"`) {
+		if body := h.do("GET", "/settings?tab=security", c, nil, false).Body.String(); !strings.Contains(body, "Passkeys are off") || strings.Contains(body, `id="passkey-add"`) {
 			t.Errorf("%s: settings must explain that passkeys are off", publicURL)
 		}
 		if w := h.postJSON("/passkeys/register/begin", []*http.Cookie{c}, `{"name":"x"}`); w.Code != http.StatusConflict {
@@ -48,7 +48,7 @@ func TestPasskeysOffWithoutHTTPSAndHostName(t *testing.T) {
 	}
 	// localhost over plain HTTP is allowed by browsers, so the Hub allows it too.
 	h := newHarness(t, "http://localhost:8080", false)
-	if body := h.do("GET", "/settings", h.login(), nil, false).Body.String(); !strings.Contains(body, `id="passkey-add"`) {
+	if body := h.do("GET", "/settings?tab=security", h.login(), nil, false).Body.String(); !strings.Contains(body, `id="passkey-add"`) {
 		t.Error("localhost: passkeys must be on")
 	}
 }
@@ -148,7 +148,7 @@ func TestSettingsListsAndRemovesPasskeys(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	c := h.login()
 	id, _ := h.st.AddPasskey(context.Background(), "Mac<Book>", []byte("cred-1"), []byte(fakeCredential), h.clock)
-	body := h.do("GET", "/settings", c, nil, false).Body.String()
+	body := h.do("GET", "/settings?tab=security", c, nil, false).Body.String()
 	for _, want := range []string{"Mac&lt;Book&gt;", `action="/passkeys/1/delete"`, `id="passkey-add"`, "/static/passkey.js"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings is missing %q", want)
@@ -157,7 +157,7 @@ func TestSettingsListsAndRemovesPasskeys(t *testing.T) {
 	if w := h.do("POST", "/passkeys/1/delete", nil, nil, false); w.Header().Get("Location") != "/login" {
 		t.Error("removing needs a session")
 	}
-	if w := h.do("POST", "/passkeys/1/delete", c, nil, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/settings" {
+	if w := h.do("POST", "/passkeys/1/delete", c, nil, false); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/settings?tab=security" {
 		t.Errorf("delete: %d %q", w.Code, w.Header().Get("Location"))
 	}
 	if _, err := h.st.PasskeyByCredentialID(context.Background(), []byte("cred-1")); err == nil {

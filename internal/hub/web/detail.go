@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/store"
 	"fleetwatch/internal/protocol"
 )
@@ -61,7 +62,7 @@ func cpuCount(n int) string {
 	return strconv.Itoa(n) + " CPUs"
 }
 
-func buildPVE(p *protocol.Proxmox) *PVEView {
+func buildPVE(p *protocol.Proxmox, lim alert.Limits) *PVEView {
 	if p == nil || !p.Detected {
 		return nil
 	}
@@ -95,13 +96,13 @@ func buildPVE(p *protocol.Proxmox) *PVEView {
 		row.Mem.Tip = fmtBytes(g.MemMax) + " allocated, stopped"
 		row.Disk.Tip = fmtBytes(g.DiskMax) + " allocated, stopped"
 		if running {
-			row.CPU = usage(g.CPUPct, warnCPU, strconv.FormatFloat(g.CPUPct, 'f', -1, 64)+"% of "+cpuCount(g.CPUs))
+			row.CPU = usage(g.CPUPct, lim.CPU, strconv.FormatFloat(g.CPUPct, 'f', -1, 64)+"% of "+cpuCount(g.CPUs))
 			if g.MemMax > 0 {
-				row.Mem = usage(ratio(g.MemUsed, g.MemMax), warnRAM, fmtBytes(g.MemUsed)+" / "+fmtBytes(g.MemMax))
+				row.Mem = usage(ratio(g.MemUsed, g.MemMax), lim.RAM, fmtBytes(g.MemUsed)+" / "+fmtBytes(g.MemMax))
 			}
 			row.Disk.Tip = fmtBytes(g.DiskMax) + " allocated, usage not reported for VMs"
 			if g.DiskUsed > 0 && g.DiskMax > 0 { // Proxmox reports no disk usage for VMs
-				row.Disk = usage(ratio(g.DiskUsed, g.DiskMax), warnDisk, fmtBytes(g.DiskUsed)+" / "+fmtBytes(g.DiskMax))
+				row.Disk = usage(ratio(g.DiskUsed, g.DiskMax), lim.Disk, fmtBytes(g.DiskUsed)+" / "+fmtBytes(g.DiskMax))
 			}
 			if g.UptimeS > 0 {
 				row.Uptime = fmtUptime(g.UptimeS)
@@ -117,7 +118,7 @@ func buildPVE(p *protocol.Proxmox) *PVEView {
 		row := StorageRow{Name: s.Name, Type: s.Type, Active: s.Active, Size: "–"}
 		if s.Total > 0 {
 			row.Size = fmtBytes(s.Used) + " / " + fmtBytes(s.Total)
-			row.Usage = usage(ratio(s.Used, s.Total), warnDisk, "")
+			row.Usage = usage(ratio(s.Used, s.Total), lim.Disk, "")
 		}
 		v.Storage = append(v.Storage, row)
 	}
@@ -140,8 +141,8 @@ type HostDetail struct {
 	Stale                  bool // host is offline: tables show the last report
 }
 
-func BuildDetail(h store.Host, now time.Time) HostDetail {
-	d := HostDetail{Row: BuildRow(h, now), AgentVersion: h.AgentVersion, Mem: "–", Swap: "–", Load: "–", MemTotal: "–"}
+func BuildDetail(h store.Host, now time.Time, lim alert.Limits) HostDetail {
+	d := HostDetail{Row: BuildRow(h, now, lim), AgentVersion: h.AgentVersion, Mem: "–", Swap: "–", Load: "–", MemTotal: "–"}
 	d.Stale = !d.Row.Online
 	addrs := map[string]string{}
 	if inv := h.Inventory; inv != nil {
@@ -173,12 +174,12 @@ func BuildDetail(h store.Host, now time.Time) HostDetail {
 		}
 		d.Disks = append(d.Disks, DiskRow{Mount: disk.Mount, FS: disk.FS,
 			Size:  fmtBytes(disk.Used) + " / " + fmtBytes(disk.Total),
-			Usage: usage(ratio(disk.Used, disk.Total), warnDisk, "")})
+			Usage: usage(ratio(disk.Used, disk.Total), lim.Disk, "")})
 	}
 	for _, svc := range m.Services {
 		d.Services = append(d.Services, ServiceRow{Name: svc.Name, Status: svc.Status})
 	}
-	d.PVE = buildPVE(m.Proxmox)
+	d.PVE = buildPVE(m.Proxmox, lim)
 	for _, n := range m.Net {
 		d.Nets = append(d.Nets, NetRow{Name: n.Name, State: n.State, Addrs: addrs[n.Name], Rx: fmtBytes(n.RxBytes), Tx: fmtBytes(n.TxBytes)})
 	}
@@ -219,6 +220,11 @@ type hostPageData struct {
 	chrome
 	Detail   HostDetail
 	Services []ServiceCard // the services whose related host this is, by name
+	// HubInterval is the Hub setting in seconds; IntervalOverride the one set
+	// for this host, 0 when it follows the Hub. IgnoresHub: the agent reported
+	// without naming its interval, so it is older than 0.2.1.
+	HubInterval, IntervalOverride int
+	IgnoresHub                    bool
 }
 
 // hostServices lists the services that name this host as their host.
@@ -280,7 +286,14 @@ func (w *Web) hostPage(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	w.render(rw, http.StatusOK, "host", hostPageData{chrome: w.chrome(r, "hosts", rows), Detail: BuildDetail(h, w.now()), Services: services})
+	settings, err := w.st.Settings(r.Context())
+	if err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.render(rw, http.StatusOK, "host", hostPageData{chrome: w.chrome(r, "hosts", rows), Detail: BuildDetail(h, w.now(), alert.RulesFrom(settings).Limits), Services: services,
+		HubInterval: int(alert.ReportInterval(settings) / time.Second), IntervalOverride: int(h.IntervalOverride / time.Second),
+		IgnoresHub: !h.LastSeen.IsZero() && h.ReportInterval == 0})
 }
 
 func (w *Web) hostCharts(rw http.ResponseWriter, r *http.Request) {
@@ -305,10 +318,11 @@ func (w *Web) hostCharts(rw http.ResponseWriter, r *http.Request) {
 	for _, cr := range chartRanges {
 		data.Tabs = append(data.Tabs, rangeTab{cr.Key, cr.Label, cr.Key == chosen.Key})
 	}
+	lim := w.limits(r.Context())
 	data.Charts = []Chart{
-		BuildChart("CPU", pts, func(p store.MetricPoint) *float64 { return p.CPU }, from, to, step, warnCPU),
-		BuildChart("Memory", pts, func(p store.MetricPoint) *float64 { return p.Mem }, from, to, step, warnRAM),
-		BuildChart("Disk", pts, func(p store.MetricPoint) *float64 { return p.Disk }, from, to, step, warnDisk),
+		BuildChart("CPU", pts, func(p store.MetricPoint) *float64 { return p.CPU }, from, to, step, lim.CPU),
+		BuildChart("Memory", pts, func(p store.MetricPoint) *float64 { return p.Mem }, from, to, step, lim.RAM),
+		BuildChart("Disk", pts, func(p store.MetricPoint) *float64 { return p.Disk }, from, to, step, lim.Disk),
 	}
 	w.render(rw, http.StatusOK, "charts", data)
 }

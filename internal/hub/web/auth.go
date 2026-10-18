@@ -189,7 +189,7 @@ func (w *Web) changePassword(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("admin password changed from %s; other sessions logged out", ip)
-	http.Redirect(rw, r, "/settings?password=1", http.StatusSeeOther)
+	http.Redirect(rw, r, "/settings?tab=security&password=1", http.StatusSeeOther)
 }
 
 func (w *Web) passwordError(rw http.ResponseWriter, r *http.Request, status int, msg string) {
@@ -198,5 +198,5 @@ func (w *Web) passwordError(rw http.ResponseWriter, r *http.Request, status int,
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	w.renderSettings(rw, r, status, formFromSettings(s), []string{msg}, false)
+	w.renderSettings(rw, r, status, "security", formFromSettings(s), []string{msg}, false)
 }

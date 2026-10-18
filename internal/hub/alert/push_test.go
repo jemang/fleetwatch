@@ -103,8 +103,8 @@ func TestPushPayload(t *testing.T) {
 	if p["title"] != "Service recovered · Grafana" || p["body"] != "After 4m" || p["tag"] != "alert-7" {
 		t.Errorf("resolved: %v", p)
 	}
-	json.Unmarshal(pushPayload(Message{Event: "firing", AlertID: 3, Host: "pve-2", Kind: KindOffline, HostServices: []string{"A", "B"}}), &p)
-	if p["title"] != "Agent disconnected · pve-2" || p["body"] != "Services on this host: A, B" {
+	json.Unmarshal(pushPayload(Message{Event: "firing", AlertID: 3, Host: "pve-02", Kind: KindOffline, HostServices: []string{"A", "B"}}), &p)
+	if p["title"] != "Agent disconnected · pve-02" || p["body"] != "Services on this host: A, B" {
 		t.Errorf("offline: %v", p)
 	}
 	json.Unmarshal(pushPayload(Message{Event: "test", Hub: "h"}), &p)

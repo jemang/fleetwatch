@@ -62,7 +62,7 @@ func TestProblemLines(t *testing.T) {
 		"GET /hosts/1 200 1.2s":                                     false,
 		"POST /login 500 3ms":                                       true,
 		"POST /api/v1/report 429 1ms":                               true,
-		"alerts: \"firing\" message for cpu on pinas not delivered": true,
+		"alerts: \"firing\" message for cpu on nas-01 not delivered": true,
 		"history rollup: database is locked":                        false,
 		"login failed from 10.0.0.9":                                true,
 		"agent files missing in /dl":                                true,
@@ -77,8 +77,8 @@ func TestProblemLines(t *testing.T) {
 	}
 	b := New(3, func() time.Time { return t0 })
 	fmt.Fprintln(b, "POST /login 500 3ms")
-	fmt.Fprintln(b, "report from pinas: agent 0.1.1, cpu 3%, ram 41%, disk 62%")
-	fmt.Fprintln(b, "report from pinas rejected (too often)")
+	fmt.Fprintln(b, "report from nas-01: agent 0.1.1, cpu 3%, ram 41%, disk 62%")
+	fmt.Fprintln(b, "report from nas-01 rejected (too often)")
 	got := b.Lines()
 	if !got[0].Problem || got[0].Report {
 		t.Errorf("failed request: %+v", got[0])

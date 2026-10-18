@@ -10,16 +10,16 @@ import (
 )
 
 func TestBuildAlertChart(t *testing.T) {
-	loc := time.FixedZone("MYT", 8*3600)
+	loc := time.FixedZone("UTC+8", 8*3600)
 	now := time.Date(2026, 10, 17, 13, 0, 0, 0, loc)
 	at := func(day, hour int) time.Time { return time.Date(2026, 10, day, hour, 0, 0, 0, loc) }
 	alerts := []store.Alert{
-		{Kind: "host_offline", Host: "labs", FiredAt: at(15, 1)},
-		{Kind: "host_offline", Host: "labs", FiredAt: at(15, 2)},
-		{Kind: "svc_down", Service: "Keynote", FiredAt: at(15, 3)},
-		{Kind: "ram_high", Host: "PiNAS", FiredAt: at(15, 23)},
-		{Kind: "host_offline", Host: "PiNAS", FiredAt: at(17, 0)},                           // local midnight starts the 17th
-		{Kind: "guest_stopped", Host: "labs", FiredAt: at(16, 7).Add(-24 * 30 * time.Hour)}, // before the window
+		{Kind: "host_offline", Host: "web-01", FiredAt: at(15, 1)},
+		{Kind: "host_offline", Host: "web-01", FiredAt: at(15, 2)},
+		{Kind: "svc_down", Service: "Wiki", FiredAt: at(15, 3)},
+		{Kind: "ram_high", Host: "nas-01", FiredAt: at(15, 23)},
+		{Kind: "host_offline", Host: "nas-01", FiredAt: at(17, 0)},                           // local midnight starts the 17th
+		{Kind: "guest_stopped", Host: "web-01", FiredAt: at(16, 7).Add(-24 * 30 * time.Hour)}, // before the window
 	}
 	c := BuildAlertChart(alerts, now, loc)
 
@@ -42,7 +42,7 @@ func TestBuildAlertChart(t *testing.T) {
 	if c.Busiest != "Thu 15 Oct (4)" {
 		t.Errorf("busiest = %q", c.Busiest)
 	}
-	if len(c.Top) != 3 || c.Top[0] != (SourceCount{"PiNAS", 2}) || c.Top[1] != (SourceCount{"labs", 2}) || c.Top[2] != (SourceCount{"Keynote", 1}) {
+	if len(c.Top) != 3 || c.Top[0] != (SourceCount{"nas-01", 2}) || c.Top[1] != (SourceCount{"web-01", 2}) || c.Top[2] != (SourceCount{"Wiki", 1}) {
 		t.Errorf("top sources = %+v", c.Top)
 	}
 	if c.YMax < 4 || c.YMax%2 != 0 {

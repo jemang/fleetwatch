@@ -36,7 +36,7 @@ func kinds(conds []Condition) string {
 
 func TestRulesFromSettings(t *testing.T) {
 	r := RulesFrom(nil)
-	if r != (Rules{OfflineMisses: 3, CPUFor: 5 * time.Minute, RAMFor: 5 * time.Minute, DiskFor: 2 * time.Minute, StorageFor: 2 * time.Minute}) {
+	if r != (Rules{OfflineMisses: 3, Limits: Limits{CPU: 90, RAM: 90, Disk: 85}, CPUFor: 5 * time.Minute, RAMFor: 5 * time.Minute, DiskFor: 2 * time.Minute, StorageFor: 2 * time.Minute}) {
 		t.Errorf("defaults = %+v", r)
 	}
 	r = RulesFrom(map[string]string{"offline_misses": "5", "cpu_for_min": "0", "ram_for_min": "junk", "disk_for_min": "10"})
@@ -66,6 +66,39 @@ func TestEvaluateThresholds(t *testing.T) {
 	if conds, _ := Evaluate([]store.Host{h}, t0, RulesFrom(nil), map[GuestKey]bool{}); len(conds) != 0 {
 		t.Errorf("just under every limit raises nothing: %q", kinds(conds))
 	}
+}
+
+func TestLimitsFromSettings(t *testing.T) {
+	r := RulesFrom(map[string]string{"cpu_limit_pct": "75", "ram_limit_pct": "100", "disk_limit_pct": "0"})
+	if r.Limits != (Limits{CPU: 75, RAM: 100, Disk: 85}) {
+		t.Errorf("limits = %+v (0 is out of range and keeps the default)", r.Limits)
+	}
+	for _, bad := range []string{"", "101", "-5", "junk"} {
+		if got := RulesFrom(map[string]string{"cpu_limit_pct": bad}).Limits.CPU; got != 90 {
+			t.Errorf("cpu_limit_pct %q: %d, want the default 90", bad, got)
+		}
+	}
+}
+
+func TestEvaluateUsesTheLimitsFromSettings(t *testing.T) {
+	h := onlineHost(1, "web-01")
+	h.Metrics.CPUPct = f(80)
+	h.Metrics.Mem = &protocol.Mem{Total: 100, Used: 70}
+	h.Metrics.Disks = []protocol.Disk{{Mount: "/", Total: 100, Used: 60}}
+	r := RulesFrom(map[string]string{"cpu_limit_pct": "80", "ram_limit_pct": "70", "disk_limit_pct": "61"})
+	if got := kinds(evaluate1(h, r)); got != "cpu_high: ram_high:" {
+		t.Errorf("CPU 80%% at 80, memory 70%% at 70, disk 60%% at 61: %q", got)
+	}
+	// Rules made without settings (zero limits) keep the defaults instead of
+	// alerting on everything.
+	if got := kinds(evaluate1(h, Rules{OfflineMisses: 3})); got != "" {
+		t.Errorf("zero limits: %q, want the defaults", got)
+	}
+}
+
+func evaluate1(h store.Host, r Rules) []Condition {
+	conds, _ := Evaluate([]store.Host{h}, t0, r, map[GuestKey]bool{})
+	return conds
 }
 
 func TestEvaluateOfflineHidesOtherRules(t *testing.T) {
@@ -142,7 +175,7 @@ func TestWebhookAndTelegram(t *testing.T) {
 	if hs, ok := body["host_services"].([]any); !ok || len(hs) != 0 {
 		t.Errorf("host_services must be an empty list: %v", body["host_services"])
 	}
-	off := Message{Event: "firing", Host: "pve-2", Kind: KindOffline, HostServices: []string{"A", "B"}, Since: t0, At: t0, Hub: "h", Zone: time.UTC}
+	off := Message{Event: "firing", Host: "pve-02", Kind: KindOffline, HostServices: []string{"A", "B"}, Since: t0, At: t0, Hub: "h", Zone: time.UTC}
 	if err := targets[0].Send(context.Background(), off); err != nil {
 		t.Fatal(err)
 	}

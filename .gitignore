@@ -9,3 +9,20 @@ handoff.md
 .doc
 .claude
 PVE_Watch_PRD.md
+# Local secrets and environment files; deploy/.env.example stays tracked.
+.env
+.env.*
+!.env.example
+*.pem
+!internal/release/pubkey/pubkey.pem
+# Local Hub databases from development runs.
+*.db
+*.db-shm
+*.db-wal
+# Personal agent and editor settings.
+CLAUDE.md
+AGENTS.md
+.mcp.json
+.codex/
+.vscode/
+.idea/

@@ -44,10 +44,10 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 	f := &fakeAPI{calls: map[string]*atomic.Int32{}}
 	replies := map[string]string{
 		"/api2/json/version":                                            `{"data":{"version":"8.2.4","release":"8.2","repoid":"faa83925"}}`,
-		"/api2/json/cluster/status":                                     `{"data":[{"type":"cluster","name":"lab","nodes":2,"quorate":1},{"type":"node","name":"pve-02","local":0,"online":1},{"type":"node","name":"pve-01","local":1,"online":1,"ip":"192.168.10.10"}]}`,
+		"/api2/json/cluster/status":                                     `{"data":[{"type":"cluster","name":"lab","nodes":2,"quorate":1},{"type":"node","name":"pve-02","local":0,"online":1},{"type":"node","name":"pve-01","local":1,"online":1,"ip":"192.168.1.10"}]}`,
 		"/api2/json/cluster/resources":                                  resources,
-		"/api2/json/nodes/pve-01/lxc/101/interfaces":                    `{"data":[{"name":"lo","inet":"127.0.0.1/8","inet6":"::1/128"},{"name":"eth0","hwaddr":"BC:24:11:00:00:01","inet":"192.168.10.21/24","inet6":"fe80::be24:11ff:fe00:1/64"},{"name":"eth1","inet6":"2001:db8::21/64"}]}`,
-		"/api2/json/nodes/pve-01/qemu/110/agent/network-get-interfaces": `{"data":{"result":[{"name":"lo","ip-addresses":[{"ip-address":"127.0.0.1","ip-address-type":"ipv4","prefix":8}]},{"name":"ens18","ip-addresses":[{"ip-address":"192.168.10.30","ip-address-type":"ipv4","prefix":24},{"ip-address":"fe80::1","ip-address-type":"ipv6","prefix":64}]}]}}`,
+		"/api2/json/nodes/pve-01/lxc/101/interfaces":                    `{"data":[{"name":"lo","inet":"127.0.0.1/8","inet6":"::1/128"},{"name":"eth0","hwaddr":"BC:24:11:00:00:01","inet":"192.168.1.21/24","inet6":"fe80::be24:11ff:fe00:1/64"},{"name":"eth1","inet6":"2001:db8::21/64"}]}`,
+		"/api2/json/nodes/pve-01/qemu/110/agent/network-get-interfaces": `{"data":{"result":[{"name":"lo","ip-addresses":[{"ip-address":"127.0.0.1","ip-address-type":"ipv4","prefix":8}]},{"name":"ens18","ip-addresses":[{"ip-address":"192.168.1.30","ip-address-type":"ipv4","prefix":24},{"ip-address":"fe80::1","ip-address-type":"ipv6","prefix":64}]}]}}`,
 	}
 	for path := range replies {
 		f.calls[path] = new(atomic.Int32)
@@ -165,13 +165,13 @@ func TestCollectMapsNodeGuestsAndStorage(t *testing.T) {
 		lxc.MemUsed != 134217728 || lxc.MemMax != 536870912 || lxc.DiskUsed != 1073741824 || lxc.DiskMax != 8589934592 || lxc.UptimeS != 3600 {
 		t.Errorf("lxc = %+v", lxc)
 	}
-	if !reflect.DeepEqual(lxc.IPs, []string{"192.168.10.21", "2001:db8::21"}) {
+	if !reflect.DeepEqual(lxc.IPs, []string{"192.168.1.21", "2001:db8::21"}) {
 		t.Errorf("lxc addresses = %q; loopback and link-local are left out, IPv4 first", lxc.IPs)
 	}
 	if stopped.ID != 115 || stopped.Status != "stopped" || stopped.MemMax != 536870912 || stopped.IPs != nil {
 		t.Errorf("stopped guest (numbers sent as strings must still be read, no address lookup) = %+v", stopped)
 	}
-	if vm.ID != 110 || vm.Type != "qemu" || vm.CPUPct != 12.5 || !reflect.DeepEqual(vm.IPs, []string{"192.168.10.30"}) {
+	if vm.ID != 110 || vm.Type != "qemu" || vm.CPUPct != 12.5 || !reflect.DeepEqual(vm.IPs, []string{"192.168.1.30"}) {
 		t.Errorf("vm = %+v", vm)
 	}
 	if len(got.Storage) != 2 || got.Storage[0].Name != "local" || !got.Storage[0].Active || got.Storage[0].Total != 107374182400 || got.Storage[0].Used != 42949672960 ||
@@ -191,7 +191,7 @@ func TestGuestAddressesAreCachedAndUnknownWhenTheAgentCallFails(t *testing.T) {
 	if n := f.calls[lxcPath].Load(); n != 1 {
 		t.Errorf("addresses are looked up every 5 minutes, not every cycle: %d calls", n)
 	}
-	if !reflect.DeepEqual(got.Guests[0].IPs, []string{"192.168.10.21", "2001:db8::21"}) {
+	if !reflect.DeepEqual(got.Guests[0].IPs, []string{"192.168.1.21", "2001:db8::21"}) {
 		t.Errorf("cached addresses must still be reported: %q", got.Guests[0].IPs)
 	}
 	now = now.Add(5 * time.Minute)

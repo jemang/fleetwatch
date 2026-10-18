@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,6 +167,34 @@ func TestRollupCatchesUpAfterAPause(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM host_metrics WHERE res = 3600`).Scan(&n)
 	if n != 1 {
 		t.Errorf("repeating the rollup must not add rows, hour rows = %d", n)
+	}
+}
+
+// The minute maintenance filters history by resolution and time only; without
+// an index on (res, ts) every query reads the whole table.
+func TestHistoryMaintenanceUsesTheResolutionIndex(t *testing.T) {
+	s := open(t)
+	for _, q := range []string{
+		`SELECT MAX(ts) FROM host_metrics WHERE res = 60`,
+		`SELECT MIN(ts) FROM host_metrics WHERE res = 0`,
+		`SELECT host_id, AVG(cpu) FROM host_metrics WHERE res = 0 AND ts >= 1 AND ts < 2 GROUP BY host_id, ts / 60`,
+		`DELETE FROM host_metrics WHERE res = 0 AND ts < 1`,
+	} {
+		rows, err := s.db.Query("EXPLAIN QUERY PLAN " + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var plan []string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			rows.Scan(&id, &parent, &unused, &detail)
+			plan = append(plan, detail)
+		}
+		rows.Close()
+		if p := strings.Join(plan, "; "); !strings.Contains(p, "host_metrics_res_ts") {
+			t.Errorf("%s\n  plan: %s", q, p)
+		}
 	}
 }
 

@@ -89,10 +89,29 @@ func TestBackoffOnTransportErrorsAndReset(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		got = append(got, r.Step(context.Background()))
 	}
-	want := []time.Duration{15 * time.Second, 30 * time.Second, 60 * time.Second, 60 * time.Second, 15 * time.Second, 15 * time.Second}
+	// A dropped connection is usually gone on the next try: retry soon, never
+	// later than the normal interval, so two failures do not look like an
+	// outage to the Hub.
+	want := []time.Duration{10 * time.Second, 15 * time.Second, 15 * time.Second, 15 * time.Second, 15 * time.Second, 10 * time.Second}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("delays = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestRetryDelayIsCappedByIntervalAndMaxBackoff(t *testing.T) {
+	for _, c := range []struct {
+		interval time.Duration
+		want     []time.Duration
+	}{
+		{30 * time.Second, []time.Duration{10 * time.Second, 20 * time.Second, 30 * time.Second, 30 * time.Second}},
+		{10 * time.Minute, []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, MaxBackoff, MaxBackoff}},
+	} {
+		for i, w := range c.want {
+			if got := backoff(c.interval, i+1); got != w {
+				t.Errorf("backoff(%v, %d) = %v, want %v", c.interval, i+1, got, w)
+			}
 		}
 	}
 }
@@ -144,6 +163,9 @@ func TestDefaultJitterBounds(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		if d := DefaultJitter(30 * time.Second); d < 24*time.Second || d > 36*time.Second {
 			t.Fatalf("jitter(30s) = %v, want within 20%%", d)
+		}
+		if d := DefaultJitter(FirstRetry); d <= 5*time.Second {
+			t.Fatalf("the first retry must stay above the Hub's 5 s minimum, got %v", d)
 		}
 		if d := DefaultJitter(MaxBackoff); d > MaxBackoff {
 			t.Fatalf("jitter must not exceed MaxBackoff, got %v", d)

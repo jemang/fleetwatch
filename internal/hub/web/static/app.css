@@ -304,6 +304,15 @@ td[data-tip] { cursor: default; }
 .settings .waits { display: grid; grid-template-columns: minmax(0, 300px) 110px; align-items: center; gap: 12px 18px; margin-top: 14px; }
 .settings .waits label { margin: 0; color: var(--ink); }
 .settings .waits label span { display: block; font-size: 12px; color: var(--ink-3); }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 0 0 18px; }
+.tabs a { padding: 6px 16px; font-size: 13px; color: var(--ink-2); text-decoration: none; border: 1px solid var(--line-strong); border-radius: 6px; transition: background-color 150ms, border-color 150ms, color 150ms; }
+.tabs a:hover { color: var(--ink); border-color: var(--line-bright); background: rgba(60, 200, 238, 0.06); }
+.tabs a[aria-current="page"] { color: var(--accent-ink); border-color: var(--accent); background: rgba(60, 200, 238, 0.1); }
+.settings .limits { display: grid; grid-template-columns: minmax(0, 300px) 110px 110px; align-items: center; gap: 12px 18px; margin-top: 14px; }
+.settings .limits .colhead { font-size: 12px; color: var(--ink-3); }
+.settings .limits .unit { position: relative; display: block; }
+.settings .limits .unit input { padding-right: 38px; }
+.settings .limits .unit i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: 12px; color: var(--ink-3); pointer-events: none; }
 .formfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
 .testresult span { display: block; }
 .testresult .ok { color: var(--ok); }
@@ -449,6 +458,9 @@ dialog .steplabel + pre { margin-top: 8px; }
   .hosts tr:has([data-status="disabled"]) td.host::before { color: var(--ink-3); }
   /* Device and passkey tables fit a phone: "Added" is the column to give up. */
   .passkeys th:nth-child(2), .passkeys td:nth-child(2) { display: none; }
+  .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tabs a { text-align: center; }
+  .settings .limits { grid-template-columns: minmax(0, 1fr) 84px 84px; gap: 10px 10px; }
   .agentbar .actions { flex-wrap: wrap; margin-left: 0; }
   .rename { width: 100%; }
   .rename input { flex: 1 1 0; width: auto; min-width: 0; }

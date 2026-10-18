@@ -26,7 +26,7 @@ func TestReportDecodesSpecExample(t *testing.T) {
 	  "disks":[{"mount":"/","fs":"ext4","total":1000204886016,"used":651882332160}],
 	  "net":[{"name":"eno1","state":"up","rx_bytes":5,"tx_bytes":7}]},
 	 "inventory":{"hostname":"web-01","os":"Debian 12","kernel":"6.1.0","cpu_model":"x","cores":8,
-	  "interfaces":[{"name":"eno1","default_route":true,"ipv4":["192.168.10.10"],"ipv6":[]}]}}`
+	  "interfaces":[{"name":"eno1","default_route":true,"ipv4":["192.168.1.10"],"ipv6":[]}]}}`
 	var r Report
 	if err := json.Unmarshal([]byte(in), &r); err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestReportDecodesSpecExample(t *testing.T) {
 	if r.Metrics.Mem.Used != 20186346291 || r.Metrics.Disks[0].Mount != "/" || r.Metrics.Net[0].TxBytes != 7 {
 		t.Errorf("metrics decoded wrong: %+v", r.Metrics)
 	}
-	if r.Inventory == nil || !r.Inventory.Interfaces[0].DefaultRoute || r.Inventory.Interfaces[0].IPv4[0] != "192.168.10.10" {
+	if r.Inventory == nil || !r.Inventory.Interfaces[0].DefaultRoute || r.Inventory.Interfaces[0].IPv4[0] != "192.168.1.10" {
 		t.Errorf("inventory decoded wrong: %+v", r.Inventory)
 	}
 }

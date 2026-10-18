@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/store"
 	"fleetwatch/internal/protocol"
 )
@@ -23,13 +24,21 @@ func onlineHost() store.Host {
 		},
 		Inventory: &protocol.Inventory{Interfaces: []protocol.Interface{
 			{Name: "docker0", IPv4: []string{"172.17.0.1"}, IPv6: []string{}},
-			{Name: "eno1", DefaultRoute: true, IPv4: []string{"192.168.10.10"}, IPv6: []string{"2001:db8::10"}},
+			{Name: "eno1", DefaultRoute: true, IPv4: []string{"192.168.1.10"}, IPv6: []string{"2001:db8::10"}},
 		}},
 	}
 }
 
+func TestBuildRowMarksTheLimitsFromSettings(t *testing.T) {
+	low := alert.Limits{CPU: 14, RAM: 61, Disk: 95}
+	r := BuildRow(onlineHost(), now, low)
+	if !r.CPU.Warn || r.RAM.Warn || r.Disk.Warn {
+		t.Errorf("CPU 14%% at 14 is amber, memory 60%% at 61 and disk 90%% at 95 are not: cpu %+v ram %+v disk %+v", r.CPU, r.RAM, r.Disk)
+	}
+}
+
 func TestBuildRowOnline(t *testing.T) {
-	r := BuildRow(onlineHost(), now)
+	r := BuildRow(onlineHost(), now, alert.DefaultLimits)
 	if !r.Online || r.Name != "pve-01" || r.LastSeenUnix != now.Add(-6*time.Second).Unix() {
 		t.Errorf("row = %+v", r)
 	}
@@ -42,29 +51,29 @@ func TestBuildRowOnline(t *testing.T) {
 	}
 	h := onlineHost()
 	h.Inventory.Cores = 4
-	if r := BuildRow(h, now); r.CPU.Tip != "14.2% of 4 cores" {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.CPU.Tip != "14.2% of 4 cores" {
 		t.Errorf("cpu tip with the core count = %q", r.CPU.Tip)
 	}
 	if r.Uptime != "42d 0h" {
 		t.Errorf("uptime = %q", r.Uptime)
 	}
-	if r.IP != "192.168.10.10" || r.IPTitle != "docker0 172.17.0.1, eno1 192.168.10.10, eno1 2001:db8::10" {
+	if r.IP != "192.168.1.10" || r.IPTitle != "docker0 172.17.0.1, eno1 192.168.1.10, eno1 2001:db8::10" {
 		t.Errorf("ip = %q title = %q", r.IP, r.IPTitle)
 	}
 }
 
 func TestBuildRowSortKeys(t *testing.T) {
-	r := BuildRow(onlineHost(), now)
-	if r.IPKey != "3232238090" || r.UptimeS != 3628800 {
+	r := BuildRow(onlineHost(), now, alert.DefaultLimits)
+	if r.IPKey != "3232235786" || r.UptimeS != 3628800 {
 		t.Errorf("sort keys: ip %q uptime %d; want the IPv4 as a number and uptime in seconds", r.IPKey, r.UptimeS)
 	}
 	h := onlineHost()
 	h.LastSeen = now.Add(-3 * time.Minute)
-	if r := BuildRow(h, now); r.UptimeS != 0 || r.IPKey != "3232238090" {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.UptimeS != 0 || r.IPKey != "3232235786" {
 		t.Errorf("offline row: uptime key %d must be unknown, ip key %q must stay", r.UptimeS, r.IPKey)
 	}
 	h.Inventory.Interfaces = []protocol.Interface{{Name: "eth0", IPv4: []string{}, IPv6: []string{"2001:db8::1"}}}
-	if r := BuildRow(h, now); r.IPKey != "" {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.IPKey != "" {
 		t.Errorf("an IPv6-only host has no numeric IP key, got %q", r.IPKey)
 	}
 }
@@ -110,7 +119,7 @@ func TestWarnThresholds(t *testing.T) {
 	h.Metrics.CPUPct = f(89.6) // rounds to 90
 	h.Metrics.Mem = &protocol.Mem{Total: 1000, Used: 894}
 	h.Metrics.Disks = []protocol.Disk{{Mount: "/", Total: 1000, Used: 850}}
-	r := BuildRow(h, now)
+	r := BuildRow(h, now, alert.DefaultLimits)
 	if !r.CPU.Warn || r.RAM.Warn || !r.Disk.Warn {
 		t.Errorf("want CPU warn at 90, RAM no warn at 89, disk warn at 85: %+v %+v %+v", r.CPU, r.RAM, r.Disk)
 	}
@@ -119,17 +128,17 @@ func TestWarnThresholds(t *testing.T) {
 func TestBuildRowOfflineHidesMetricsButKeepsIP(t *testing.T) {
 	h := onlineHost()
 	h.LastSeen = now.Add(-3 * time.Minute)
-	r := BuildRow(h, now)
+	r := BuildRow(h, now, alert.DefaultLimits)
 	if r.Online || r.CPU.Known || r.RAM.Known || r.Disk.Known || r.Uptime != "–" {
 		t.Errorf("offline row must not show stale metrics: %+v", r)
 	}
-	if r.IP != "192.168.10.10" || r.LastSeenUnix == 0 {
+	if r.IP != "192.168.1.10" || r.LastSeenUnix == 0 {
 		t.Errorf("offline row keeps IP and last report time: %+v", r)
 	}
 }
 
 func TestBuildRowNeverReported(t *testing.T) {
-	r := BuildRow(store.Host{ID: 2, Name: "new"}, now)
+	r := BuildRow(store.Host{ID: 2, Name: "new"}, now, alert.DefaultLimits)
 	if r.Online || r.LastSeenUnix != 0 || r.IP != "–" || r.Uptime != "–" || r.CPU.Known {
 		t.Errorf("row = %+v", r)
 	}
@@ -138,15 +147,15 @@ func TestBuildRowNeverReported(t *testing.T) {
 func TestIPFallbackWithoutDefaultRoute(t *testing.T) {
 	h := onlineHost()
 	h.Inventory.Interfaces[1].DefaultRoute = false
-	if r := BuildRow(h, now); r.IP != "172.17.0.1" {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.IP != "172.17.0.1" {
 		t.Errorf("no default route: IP = %q, want the first IPv4 found", r.IP)
 	}
 	h.Inventory.Interfaces = []protocol.Interface{{Name: "eth0", IPv4: []string{}, IPv6: []string{"2001:db8::1"}}}
-	if r := BuildRow(h, now); r.IP != "2001:db8::1" {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.IP != "2001:db8::1" {
 		t.Errorf("IPv6-only host: IP = %q", r.IP)
 	}
 	h.Inventory.Interfaces = nil
-	if r := BuildRow(h, now); r.IP != "–" {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.IP != "–" {
 		t.Errorf("no addresses: IP = %q", r.IP)
 	}
 }
@@ -162,7 +171,7 @@ func TestUptimeFormat(t *testing.T) {
 func TestFailedServicesCountAsWarnings(t *testing.T) {
 	h := onlineHost()
 	h.Metrics.Services = []protocol.Service{{Name: "nginx.service", Status: "running"}, {Name: "db.service", Status: "failed"}, {Name: "x.service", Status: "failed"}}
-	r := BuildRow(h, now)
+	r := BuildRow(h, now, alert.DefaultLimits)
 	if r.FailedServices != 2 {
 		t.Fatalf("failed services = %d, want 2", r.FailedServices)
 	}
@@ -171,10 +180,10 @@ func TestFailedServicesCountAsWarnings(t *testing.T) {
 		t.Errorf("a host with a failed service belongs in Warnings: %+v", s)
 	}
 	h.LastSeen = now.Add(-3 * time.Minute)
-	if r := BuildRow(h, now); r.FailedServices != 0 {
+	if r := BuildRow(h, now, alert.DefaultLimits); r.FailedServices != 0 {
 		t.Error("an offline host's last known services must not raise a warning")
 	}
-	d := BuildDetail(onlineHostWithServices(), now)
+	d := BuildDetail(onlineHostWithServices(), now, alert.DefaultLimits)
 	if len(d.Services) != 2 || d.Services[1] != (ServiceRow{Name: "db.service", Status: "failed"}) {
 		t.Errorf("detail services = %+v", d.Services)
 	}
@@ -191,7 +200,7 @@ func pveHost() store.Host {
 	quorate := true
 	h.Metrics.Proxmox = &protocol.Proxmox{Detected: true, Configured: true, Version: "8.2.4", Node: "pve-01", Cluster: "lab", Quorate: &quorate,
 		Guests: []protocol.Guest{
-			{ID: 101, Type: "lxc", Name: "nginx", Status: "running", CPUs: 2, CPUPct: 1, MemUsed: 128 << 20, MemMax: 512 << 20, DiskUsed: 1 << 30, DiskMax: 8 << 30, UptimeS: 3600, IPs: []string{"192.168.10.21"}},
+			{ID: 101, Type: "lxc", Name: "nginx", Status: "running", CPUs: 2, CPUPct: 1, MemUsed: 128 << 20, MemMax: 512 << 20, DiskUsed: 1 << 30, DiskMax: 8 << 30, UptimeS: 3600, IPs: []string{"192.168.1.21"}},
 			{ID: 110, Type: "qemu", Name: "app-server", Status: "running", CPUs: 4, CPUPct: 12.5, MemUsed: 2 << 30, MemMax: 8 << 30, DiskMax: 50 << 30, UptimeS: 86400},
 			{ID: 115, Type: "lxc", Name: "ocrmypdf", Status: "stopped", CPUs: 1, MemMax: 512 << 20, DiskMax: 8 << 30},
 		},
@@ -201,17 +210,17 @@ func pveHost() store.Host {
 }
 
 func TestProxmoxInRowAndDetail(t *testing.T) {
-	r := BuildRow(pveHost(), now)
+	r := BuildRow(pveHost(), now, alert.DefaultLimits)
 	if r.Guests != "2 / 3" || r.GuestKey != "3" || r.InactiveStorage != 1 {
 		t.Errorf("row: guests %q key %q inactive storage %d", r.Guests, r.GuestKey, r.InactiveStorage)
 	}
 	if s := Summarize([]HostRow{{Name: "pve-01", Online: true, InactiveStorage: 1}}); s.Warnings != 1 {
 		t.Error("inactive storage belongs in Warnings")
 	}
-	if plain := BuildRow(onlineHost(), now); plain.Guests != "" || plain.GuestKey != "" {
+	if plain := BuildRow(onlineHost(), now, alert.DefaultLimits); plain.Guests != "" || plain.GuestKey != "" {
 		t.Errorf("a host without Proxmox shows no guest count: %q %q", plain.Guests, plain.GuestKey)
 	}
-	d := BuildDetail(pveHost(), now)
+	d := BuildDetail(pveHost(), now, alert.DefaultLimits)
 	if d.PVE == nil || d.PVE.Summary != "Proxmox VE 8.2.4 · node pve-01 · cluster lab (quorate)" || d.PVE.Note != "" {
 		t.Fatalf("proxmox line = %+v", d.PVE)
 	}
@@ -222,7 +231,7 @@ func TestProxmoxInRowAndDetail(t *testing.T) {
 			CPU:    Usage{Known: true, Pct: 1, Tip: "1% of 2 CPUs"},
 			Mem:    Usage{Known: true, Pct: 25, Tip: "128.0 MiB / 512.0 MiB"},
 			Disk:   Usage{Known: true, Pct: 13, Tip: "1.0 GiB / 8.0 GiB"},
-			Uptime: "1h 0m", IP: "192.168.10.21"},
+			Uptime: "1h 0m", IP: "192.168.1.21"},
 		{ID: 110, Name: "app-server", Type: "VM", Status: "running",
 			CPU:    Usage{Known: true, Pct: 13, Tip: "12.5% of 4 CPUs"},
 			Mem:    Usage{Known: true, Pct: 25, Tip: "2.0 GiB / 8.0 GiB"},
@@ -242,7 +251,7 @@ func TestProxmoxInRowAndDetail(t *testing.T) {
 	busy := pveHost()
 	busy.Metrics.Proxmox.Guests = []protocol.Guest{{ID: 1, Type: "lxc", Status: "running", CPUs: 1, CPUPct: 95, MemUsed: 95, MemMax: 100, DiskUsed: 95, DiskMax: 100},
 		{ID: 2, Type: "lxc", Status: "running", CPUs: 1}}
-	g := BuildDetail(busy, now).PVE.Guests
+	g := BuildDetail(busy, now, alert.DefaultLimits).PVE.Guests
 	if !g[0].CPU.Warn || !g[0].Mem.Warn || !g[0].Disk.Warn {
 		t.Errorf("a guest over the limits must be coloured as a warning: %+v", g[0])
 	}
@@ -254,11 +263,11 @@ func TestProxmoxInRowAndDetail(t *testing.T) {
 	}
 	h := onlineHost()
 	h.Metrics.Proxmox = &protocol.Proxmox{Detected: true}
-	if d := BuildDetail(h, now); d.PVE == nil || !strings.Contains(d.PVE.Note, "API token") || !strings.Contains(d.PVE.Note, "Replace credential") {
+	if d := BuildDetail(h, now, alert.DefaultLimits); d.PVE == nil || !strings.Contains(d.PVE.Note, "API token") || !strings.Contains(d.PVE.Note, "Replace credential") {
 		t.Errorf("detected without a token must say what to do: %+v", d.PVE)
 	}
 	h.Metrics.Proxmox = &protocol.Proxmox{Detected: true, Configured: true, Error: "pve: /version answered HTTP 401"}
-	if d := BuildDetail(h, now); d.PVE == nil || !strings.Contains(d.PVE.Note, "401") {
+	if d := BuildDetail(h, now, alert.DefaultLimits); d.PVE == nil || !strings.Contains(d.PVE.Note, "401") {
 		t.Errorf("an API error must be shown: %+v", d.PVE)
 	}
 }
@@ -287,7 +296,7 @@ func TestOnlineBoundary(t *testing.T) {
 func TestDisabledHostIsNeitherOnlineNorOffline(t *testing.T) {
 	h := onlineHost()
 	h.Disabled = true
-	row := BuildRow(h, now)
+	row := BuildRow(h, now, alert.DefaultLimits)
 	if row.Online || !row.Disabled || row.Status() != "disabled" || row.StatusLabel() != "Disabled" || row.CPU.Known {
 		t.Errorf("row of a disabled host = %+v", row)
 	}
@@ -295,7 +304,7 @@ func TestDisabledHostIsNeitherOnlineNorOffline(t *testing.T) {
 	if s.Hosts != 3 || s.Online != 1 || s.Offline != 1 || s.Disabled != 1 {
 		t.Errorf("summary = %+v", s)
 	}
-	if on := BuildRow(onlineHost(), now); on.Status() != "online" || on.StatusLabel() != "Online" {
+	if on := BuildRow(onlineHost(), now, alert.DefaultLimits); on.Status() != "online" || on.StatusLabel() != "Online" {
 		t.Errorf("online row status = %q %q", on.Status(), on.StatusLabel())
 	}
 }

@@ -51,10 +51,10 @@ func TestChangePassword(t *testing.T) {
 	}
 
 	res := changePassword(h, c, "pw", next, next)
-	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/settings?password=1" {
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/settings?tab=security&password=1" {
 		t.Fatalf("change: status %d, location %q", res.StatusCode, res.Header.Get("Location"))
 	}
-	if w := h.do("GET", "/settings?password=1", c, nil, false); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Password changed") {
+	if w := h.do("GET", "/settings?tab=security&password=1", c, nil, false); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Password changed") {
 		t.Errorf("this session must stay logged in and see the result: status %d", w.Code)
 	}
 	if w := h.do("GET", "/", other, nil, false); w.Code != http.StatusSeeOther {

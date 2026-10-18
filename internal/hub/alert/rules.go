@@ -3,6 +3,7 @@
 package alert
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"strconv"
@@ -19,9 +20,6 @@ const (
 	KindStorage = "storage_inactive"
 	KindGuest   = "guest_stopped"
 	KindService = "service_failed"
-
-	// Limits in percent. The dashboard marks the same values in amber.
-	LimitCPU, LimitRAM, LimitDisk = 90, 90, 85
 
 	// The report interval agents are told to keep (setting report_interval_s).
 	DefaultReportInterval = 30 * time.Second
@@ -46,9 +44,24 @@ var ResolvedTitle = map[string]string{
 	KindOffline: "Agent connected", KindSvcDown: "Service recovered", KindSvcSlow: "Service fast again", KindSvcCert: "Certificate renewed",
 }
 
-// Rules holds how long a condition must last before its alert fires.
+// Limits are the percentages at or above which CPU, memory and disk count as
+// high (settings cpu_limit_pct, ram_limit_pct, disk_limit_pct). The host list
+// and charts mark the same values in amber.
+type Limits struct{ CPU, RAM, Disk int }
+
+var DefaultLimits = Limits{CPU: 90, RAM: 90, Disk: 85}
+
+// orDefault fills a zero limit with its default, so Rules made without
+// settings do not alert on everything.
+func (l Limits) orDefault() Limits {
+	return Limits{cmp.Or(l.CPU, DefaultLimits.CPU), cmp.Or(l.RAM, DefaultLimits.RAM), cmp.Or(l.Disk, DefaultLimits.Disk)}
+}
+
+// Rules holds the levels and how long a condition must last before its alert
+// fires.
 type Rules struct {
 	OfflineMisses                       int
+	Limits                              Limits
 	CPUFor, RAMFor, DiskFor, StorageFor time.Duration
 }
 
@@ -62,12 +75,20 @@ func RulesFrom(settings map[string]string) Rules {
 		}
 		return time.Duration(n) * unit
 	}
+	pct := func(key string, def int) int {
+		n, err := strconv.Atoi(settings[key])
+		if err != nil || n < 1 || n > 100 {
+			return def
+		}
+		return n
+	}
 	misses, err := strconv.Atoi(settings["offline_misses"])
 	if err != nil || misses < MinOfflineMisses || misses > MaxOfflineMisses {
 		misses = DefaultOfflineMisses
 	}
 	return Rules{
 		OfflineMisses: misses,
+		Limits:        Limits{pct("cpu_limit_pct", DefaultLimits.CPU), pct("ram_limit_pct", DefaultLimits.RAM), pct("disk_limit_pct", DefaultLimits.Disk)},
 		CPUFor:        get("cpu_for_min", 5*time.Minute, time.Minute),
 		RAMFor:        get("ram_for_min", 5*time.Minute, time.Minute),
 		DiskFor:       get("disk_for_min", 2*time.Minute, time.Minute),
@@ -127,6 +148,7 @@ func pct(used, total uint64) int { return int(math.Round(float64(used) / float64
 // remembers guests that were seen running, so only those can "stop".
 func Evaluate(hosts []store.Host, now time.Time, r Rules, seenRunning map[GuestKey]bool) (conds []Condition, unknown map[int64]bool) {
 	unknown = map[int64]bool{}
+	lim := r.Limits.orDefault()
 	for _, h := range hosts {
 		// A disabled agent is silent on purpose: nothing is wrong, so its
 		// open alerts end.
@@ -149,12 +171,12 @@ func Evaluate(hosts []store.Host, now time.Time, r Rules, seenRunning map[GuestK
 			continue
 		}
 		if m.CPUPct != nil {
-			if v := int(math.Round(*m.CPUPct)); v >= LimitCPU {
+			if v := int(math.Round(*m.CPUPct)); v >= lim.CPU {
 				conds = append(conds, Condition{h.ID, KindCPU, "", fmt.Sprintf("CPU %d%%", v), r.CPUFor})
 			}
 		}
 		if m.Mem != nil && m.Mem.Total > 0 {
-			if v := pct(m.Mem.Used, m.Mem.Total); v >= LimitRAM {
+			if v := pct(m.Mem.Used, m.Mem.Total); v >= lim.RAM {
 				conds = append(conds, Condition{h.ID, KindRAM, "", fmt.Sprintf("memory %d%%", v), r.RAMFor})
 			}
 		}
@@ -162,7 +184,7 @@ func Evaluate(hosts []store.Host, now time.Time, r Rules, seenRunning map[GuestK
 			if d.Total == 0 {
 				continue
 			}
-			if v := pct(d.Used, d.Total); v >= LimitDisk {
+			if v := pct(d.Used, d.Total); v >= lim.Disk {
 				conds = append(conds, Condition{h.ID, KindDisk, d.Mount, fmt.Sprintf("%s %d%%", d.Mount, v), r.DiskFor})
 			}
 		}

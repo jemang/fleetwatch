@@ -76,9 +76,9 @@ func TestEvaluateServices(t *testing.T) {
 }
 
 func TestServiceMessage(t *testing.T) {
-	m := Message{Event: "firing", Service: "Grafana", ServiceHost: "grafana.lan", Host: "pve-2", Kind: KindSvcDown, Detail: "timeout",
+	m := Message{Event: "firing", Service: "Grafana", ServiceHost: "grafana.lan", Host: "pve-02", Kind: KindSvcDown, Detail: "timeout",
 		Since: t0, At: t0, Hub: "hub.example.com", Zone: time.UTC}
-	want := "[FleetWatch] Firing\nService: Grafana (grafana.lan)\nHost: pve-2\nAlert: Service DOWN (timeout)\nSince: 2026-09-21 14:13 UTC\nHub: hub.example.com"
+	want := "[FleetWatch] Firing\nService: Grafana (grafana.lan)\nHost: pve-02\nAlert: Service DOWN (timeout)\nSince: 2026-09-21 14:13 UTC\nHub: hub.example.com"
 	if m.Text() != want {
 		t.Errorf("firing text = %q", m.Text())
 	}
@@ -87,7 +87,7 @@ func TestServiceMessage(t *testing.T) {
 	if m.Text() != want {
 		t.Errorf("resolved text = %q", m.Text())
 	}
-	c := Message{Event: "resolved", Service: "Proxmox", ServiceHost: "labs.example.com", Kind: KindSvcCert, Detail: "14 days, 22 Nov 2026", Since: t0, At: t0, Hub: "h", Zone: time.UTC}
+	c := Message{Event: "resolved", Service: "Proxmox", ServiceHost: "app.example.com", Kind: KindSvcCert, Detail: "14 days, 22 Nov 2026", Since: t0, At: t0, Hub: "h", Zone: time.UTC}
 	if !strings.Contains(c.Text(), "Alert: Certificate renewed\n") {
 		t.Errorf("certificate resolved text = %q", c.Text())
 	}
@@ -168,18 +168,18 @@ func TestEngineHostPassLeavesServiceAlerts(t *testing.T) {
 
 func TestEngineCertificateSteps(t *testing.T) {
 	w := newWorld(t)
-	id := w.service("Proxmox", "https://labs.lan")
+	id := w.service("Proxmox", "https://app.lan")
 	exp := w.now.Add(20*24*time.Hour + time.Minute).Unix()
-	w.check(id, "https://labs.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), CertExpiresAt: exp})
+	w.check(id, "https://app.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), CertExpiresAt: exp})
 	w.tick(0)
 	w.now = w.now.Add(7 * 24 * time.Hour) // 13 days left: the 14-day warning
-	w.check(id, "https://labs.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), CertExpiresAt: exp})
+	w.check(id, "https://app.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), CertExpiresAt: exp})
 	w.tick(0)
 	if len(w.sent) != 2 || !strings.HasPrefix(w.sent[0], "firing") || !strings.HasPrefix(w.sent[1], "firing") {
 		t.Fatalf("step 30 -> 14: sent %q; want two firing messages, no resolved", w.sent)
 	}
 	renewed := w.now.Add(90 * 24 * time.Hour).Unix()
-	w.check(id, "https://labs.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), CertExpiresAt: renewed})
+	w.check(id, "https://app.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), CertExpiresAt: renewed})
 	w.tick(15 * time.Second)
 	if len(w.sent) != 3 || !strings.HasPrefix(w.sent[2], "resolved") {
 		t.Fatalf("renewed: sent %q; want a resolved message", w.sent)
@@ -282,15 +282,15 @@ func (w *world) serviceMessages() []string {
 
 func TestServiceDownUnderSilentHostIsHeldBack(t *testing.T) {
 	w := newWorld(t)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
-	id := w.hostedService("Proxmox", "https://pve.lan", "pve-2")
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
+	id := w.hostedService("Proxmox", "https://pve.lan", "pve-02")
 	w.now = w.now.Add(80 * time.Second) // the host stopped reporting
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "timeout"})
 	w.tick(15 * time.Second)
 	if got := w.serviceMessages(); len(got) != 0 || strings.Contains(w.states(), "svc_down") {
 		t.Fatalf("held back: states %q service messages %q", w.states(), got)
 	}
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
 	w.tick(0)
 	if got := w.serviceMessages(); len(got) != 0 {
 		t.Fatalf("no check since the host came back, nothing is known yet: %q", got)
@@ -307,20 +307,20 @@ func TestServiceDownUnderSilentHostIsHeldBack(t *testing.T) {
 // before they read online. Nothing about them should be sent.
 func TestHostRebootRecoveryIsQuiet(t *testing.T) {
 	w := newWorld(t)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
-	id := w.hostedService("Proxmox", "https://pve.lan", "pve-2")
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
+	id := w.hostedService("Proxmox", "https://pve.lan", "pve-02")
 	down := w.now.Add(90 * time.Second).Unix()
 	w.now = w.now.Add(90 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: down, Error: "timeout", FailStreak: 3})
 	w.tick(0)
 	w.tick(60 * time.Second)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)}) // back
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)}) // back
 	w.tick(5 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: down, Error: "timeout", OkStreak: 1}) // recovering
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
 	w.tick(15 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix(), OkStreak: 2})
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
 	w.tick(15 * time.Second)
 	if got := w.serviceMessages(); len(got) != 0 {
 		t.Fatalf("a reboot sent service messages: %q", got)
@@ -331,8 +331,8 @@ func TestHostRebootRecoveryIsQuiet(t *testing.T) {
 // its host went quiet is a failure of its own.
 func TestAgentSilenceDoesNotHideLaterFailures(t *testing.T) {
 	w := newWorld(t)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
-	id := w.hostedService("Nextcloud", "https://nc.lan", "pve-2")
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
+	id := w.hostedService("Nextcloud", "https://nc.lan", "pve-02")
 	w.tick(2 * time.Hour)
 	w.check(id, "https://nc.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "HTTP 502", FailStreak: 3})
 	w.tick(15 * time.Second)
@@ -359,13 +359,13 @@ func TestNeverReportedHostHoldsNothing(t *testing.T) {
 
 func TestServiceRecoveredDuringHostOutageSendsNothing(t *testing.T) {
 	w := newWorld(t)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
-	id := w.hostedService("Proxmox", "https://pve.lan", "pve-2")
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
+	id := w.hostedService("Proxmox", "https://pve.lan", "pve-02")
 	w.now = w.now.Add(80 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "timeout"})
 	w.tick(15 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix()})
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
 	w.tick(15 * time.Second)
 	if got := w.serviceMessages(); len(got) != 0 {
 		t.Fatalf("service messages %q; want none", got)
@@ -374,8 +374,8 @@ func TestServiceRecoveredDuringHostOutageSendsNothing(t *testing.T) {
 
 func TestOpenServiceAlertSurvivesHostSilence(t *testing.T) {
 	w := newWorld(t)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
-	id := w.hostedService("Proxmox", "https://pve.lan", "pve-2")
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
+	id := w.hostedService("Proxmox", "https://pve.lan", "pve-02")
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "timeout"})
 	w.tick(0)
 	w.tick(50 * time.Second)
@@ -387,10 +387,10 @@ func TestOpenServiceAlertSurvivesHostSilence(t *testing.T) {
 
 func TestOfflineMessageNamesTheHostServices(t *testing.T) {
 	w := newWorld(t)
-	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
-	w.hostedService("b-app", "https://b.lan", "pve-2")
-	w.hostedService("A-app", "https://a.lan", "pve-2")
-	paused := w.hostedService("C-app", "https://c.lan", "pve-2")
+	w.report("pve-02", protocol.Metrics{CPUPct: f(10)})
+	w.hostedService("b-app", "https://b.lan", "pve-02")
+	w.hostedService("A-app", "https://a.lan", "pve-02")
+	paused := w.hostedService("C-app", "https://c.lan", "pve-02")
 	w.st.SetServiceEnabled(context.Background(), paused, false)
 	w.tick(110 * time.Second)
 	var off *Message
@@ -407,10 +407,10 @@ func TestOfflineMessageNamesTheHostServices(t *testing.T) {
 // The certificate date is in the Hub's zone, as Since and Ended are.
 func TestCertDateInHubZone(t *testing.T) {
 	old := time.Local
-	time.Local = time.FixedZone("+08", 8*3600)
+	time.Local = time.FixedZone("UTC+8", 8*3600)
 	defer func() { time.Local = old }()
 	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	exp := time.Date(2026, 11, 10, 20, 0, 0, 0, time.UTC).Unix() // 11 Nov at +08
+	exp := time.Date(2026, 11, 10, 20, 0, 0, 0, time.UTC).Unix() // 11 Nov at UTC+8
 	c, ok := certCondition(store.Service{URL: "https://a", CertExpiresAt: exp}, now, []int{30})
 	if !ok || c.Detail != "9 days, 11 Nov 2026" {
 		t.Errorf("detail = %q", c.Detail)

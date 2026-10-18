@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/limit"
 	"fleetwatch/internal/hub/live"
 	"fleetwatch/internal/hub/logbuf"
@@ -140,6 +141,7 @@ func (w *Web) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /hosts/{id}/credential", w.requireSession(w.replaceCredential))
 	mux.HandleFunc("POST /hosts/{id}/label", w.requireSession(w.setHostLabel))
 	mux.HandleFunc("POST /hosts/{id}/agent", w.requireSession(w.setAgentDisabled))
+	mux.HandleFunc("POST /hosts/{id}/interval", w.requireSession(w.setHostInterval))
 	mux.HandleFunc("POST /hosts/{id}/delete", w.requireSession(w.deleteHost))
 	mux.HandleFunc("POST /servers/enroll-token", w.requireSession(w.enrollToken))
 	mux.HandleFunc("GET /alerts", w.requireSession(w.alertsPage))
@@ -191,12 +193,22 @@ func (w *Web) rows(r *http.Request) ([]HostRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	now := w.now()
+	now, lim := w.now(), w.limits(r.Context())
 	rows := make([]HostRow, len(hosts))
 	for i, h := range hosts {
-		rows[i] = BuildRow(h, now)
+		rows[i] = BuildRow(h, now, lim)
 	}
 	return rows, nil
+}
+
+// limits reads the alert levels the pages mark in amber; the defaults stand
+// in when the settings cannot be read.
+func (w *Web) limits(ctx context.Context) alert.Limits {
+	s, err := w.st.Settings(ctx)
+	if err != nil {
+		return alert.DefaultLimits
+	}
+	return alert.RulesFrom(s).Limits
 }
 
 type sortHead struct {
@@ -351,6 +363,34 @@ func (w *Web) setHostLabel(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/hosts/"+strconv.FormatInt(h.ID, 10), http.StatusSeeOther)
 }
 
+// setHostInterval sets how often this server's agent reports; an empty
+// value follows the Hub setting.
+func (w *Web) setHostInterval(rw http.ResponseWriter, r *http.Request) {
+	h, ok := w.hostFromPath(rw, r)
+	if !ok {
+		return
+	}
+	lo, hi := int(alert.MinReportInterval/time.Second), int(alert.MaxReportInterval/time.Second)
+	n := 0
+	if v := strings.TrimSpace(r.PostFormValue("report_interval_s")); v != "" {
+		if !wholeNumber(v, lo, hi) {
+			http.Error(rw, fmt.Sprintf("Enter a whole number of seconds from %d to %d, or leave it empty to follow the Hub setting.", lo, hi), http.StatusUnprocessableEntity)
+			return
+		}
+		n, _ = strconv.Atoi(v)
+	}
+	if err := w.st.SetHostReportInterval(r.Context(), h.ID, n); err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if n == 0 {
+		log.Printf("report interval of %s back to the Hub setting", h.Name)
+	} else {
+		log.Printf("report interval of %s set to %d seconds", h.Name, n)
+	}
+	http.Redirect(rw, r, "/hosts/"+strconv.FormatInt(h.ID, 10), http.StatusSeeOther)
+}
+
 // deleteHost removes a server and everything stored about it.
 func (w *Web) deleteHost(rw http.ResponseWriter, r *http.Request) {
 	h, ok := w.hostFromPath(rw, r)
@@ -484,7 +524,8 @@ func (w *Web) writeHostEvent(rw io.Writer, r *http.Request, ev live.Event, watch
 	if err != nil {
 		return
 	}
-	row := BuildRow(host, w.now())
+	lim := w.limits(r.Context())
+	row := BuildRow(host, w.now(), lim)
 	name, tmpl := fmt.Sprintf("host-%d", row.ID), "cells"
 	if ev.Kind == live.HostAdded {
 		name, tmpl = "host-new", "row"
@@ -506,7 +547,7 @@ func (w *Web) writeHostEvent(rw io.Writer, r *http.Request, ev live.Event, watch
 		}
 	}
 	if ev.HostID == watch {
-		if html, err := w.renderString("now", BuildDetail(host, w.now())); err == nil {
+		if html, err := w.renderString("now", BuildDetail(host, w.now(), lim)); err == nil {
 			writeSSE(rw, "detail", html)
 		}
 	}

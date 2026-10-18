@@ -51,7 +51,9 @@ ENROLL_TOKEN="$TOKEN" $COMPOSE up -d --build agent-test
 wait_status online 30
 
 $COMPOSE stop agent-test
-wait_status offline 50
+# Offline after two report intervals plus 15 s (75 s at the default 30 s),
+# seen on the status watcher's next 5 s tick.
+wait_status offline 95
 
 $COMPOSE start agent-test
 wait_status online 30

@@ -247,6 +247,9 @@ func (a *API) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	told := int(alert.ReportInterval(settings) / time.Second)
+	if agent.HostInterval > 0 {
+		told = int(agent.HostInterval / time.Second)
+	}
 	// An agent that names its interval adopts the one in this reply, so that
 	// is how long it waits now.
 	if rep.IntervalS > 0 {

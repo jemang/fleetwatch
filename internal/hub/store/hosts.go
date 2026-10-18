@@ -72,14 +72,20 @@ func (s *Store) Enroll(ctx context.Context, p EnrollParams) (agentID, hostID int
 type Agent struct {
 	ID, HostID int64
 	Disabled   bool
+	// HostInterval is the report interval set for its host; 0 follows the
+	// Hub setting.
+	HostInterval time.Duration
 }
 
 func (s *Store) AgentByTokenHash(ctx context.Context, hash string) (Agent, error) {
 	var a Agent
-	err := s.db.QueryRowContext(ctx, `SELECT id, host_id, disabled FROM agents WHERE token_hash = ?`, hash).Scan(&a.ID, &a.HostID, &a.Disabled)
+	var intervalS int64
+	err := s.db.QueryRowContext(ctx, `SELECT a.id, a.host_id, a.disabled, h.report_interval_s FROM agents a JOIN hosts h ON h.id = a.host_id
+		WHERE a.token_hash = ?`, hash).Scan(&a.ID, &a.HostID, &a.Disabled, &intervalS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
 	}
+	a.HostInterval = time.Duration(intervalS) * time.Second
 	return a, err
 }
 
@@ -121,6 +127,19 @@ func (s *Store) SetAgentDisabled(ctx context.Context, hostID int64, disabled boo
 // SetHostLabel names the host on the Hub; an empty label shows the hostname.
 func (s *Store) SetHostLabel(ctx context.Context, hostID int64, label string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE hosts SET label = ? WHERE id = ?`, label, hostID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetHostReportInterval sets how often the host's agent reports, in
+// seconds; 0 follows the Hub setting.
+func (s *Store) SetHostReportInterval(ctx context.Context, hostID int64, seconds int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE hosts SET report_interval_s = ? WHERE id = ?`, seconds, hostID)
 	if err != nil {
 		return err
 	}
@@ -187,23 +206,27 @@ type Host struct {
 	// ReportInterval is how long the agent waits after its last report; 0
 	// when it does not say.
 	ReportInterval time.Duration
+	// IntervalOverride is the interval set for this host on the Hub; 0
+	// follows the Hub setting.
+	IntervalOverride time.Duration
 }
 
 // shownName is how a host is named on every page and in alerts.
 const shownName = `COALESCE(NULLIF(h.label, ''), h.name)`
 
-const hostSelect = `SELECT h.id, ` + shownName + `, h.label, h.name, h.metrics_json, h.inventory_json, a.last_seen, a.agent_version, a.disabled, a.report_interval_s
+const hostSelect = `SELECT h.id, ` + shownName + `, h.label, h.name, h.metrics_json, h.inventory_json, a.last_seen, a.agent_version, a.disabled, a.report_interval_s, h.report_interval_s
 	FROM hosts h JOIN agents a ON a.host_id = h.id`
 
 func scanHost(sc interface{ Scan(...any) error }) (Host, error) {
 	var h Host
 	var metrics, inv sql.NullString
 	var seen sql.NullInt64
-	var intervalS int64
-	if err := sc.Scan(&h.ID, &h.Name, &h.Label, &h.Hostname, &metrics, &inv, &seen, &h.AgentVersion, &h.Disabled, &intervalS); err != nil {
+	var intervalS, overrideS int64
+	if err := sc.Scan(&h.ID, &h.Name, &h.Label, &h.Hostname, &metrics, &inv, &seen, &h.AgentVersion, &h.Disabled, &intervalS, &overrideS); err != nil {
 		return h, err
 	}
 	h.ReportInterval = time.Duration(intervalS) * time.Second
+	h.IntervalOverride = time.Duration(overrideS) * time.Second
 	if metrics.Valid {
 		h.Metrics = new(protocol.Metrics)
 		if err := json.Unmarshal([]byte(metrics.String), h.Metrics); err != nil {

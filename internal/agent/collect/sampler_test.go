@@ -21,7 +21,7 @@ func newTestSampler(t *testing.T) (*Sampler, *fakeClock, *atomic.Int32, *string)
 	t.Helper()
 	clock := &fakeClock{t: time.Unix(1_790_000_000, 0)}
 	var statfsCalls atomic.Int32
-	ip := "192.168.10.10"
+	ip := "192.168.1.10"
 	s := &Sampler{
 		Root: fullTree(t),
 		Statfs: func(string) (uint64, uint64, error) {
@@ -79,14 +79,14 @@ func TestSampleCadence(t *testing.T) {
 func TestInventorySentAgainOnChangeAndOnResend(t *testing.T) {
 	s, clock, _, ip := newTestSampler(t)
 	s.Sample()
-	*ip = "192.168.10.99"
+	*ip = "192.168.1.99"
 	clock.advance(15 * time.Second)
 	if _, inv := s.Sample(); inv != nil {
 		t.Error("inventory is rechecked only every 5 minutes")
 	}
 	clock.advance(InventoryEvery)
 	_, inv := s.Sample()
-	if inv == nil || inv.Interfaces[0].IPv4[0] != "192.168.10.99" {
+	if inv == nil || inv.Interfaces[0].IPv4[0] != "192.168.1.99" {
 		t.Errorf("changed inventory must be sent at the 5 minute recheck: %+v", inv)
 	}
 	clock.advance(15 * time.Second)

@@ -173,6 +173,7 @@ func (w *Web) dismissAlert(rw http.ResponseWriter, r *http.Request) {
 type settingsForm struct {
 	ChatID                               string
 	ReportInterval, OfflineMisses        string
+	CPULimit, RAMLimit, DiskLimit        string
 	CPUFor, RAMFor, DiskFor              string
 	SvcFail, SvcOk, SvcSlow, SvcCertDays string
 	SvcSlowAlert                         bool
@@ -187,8 +188,29 @@ func hostOf(rawURL string) string {
 	return "set"
 }
 
+// settingsTabs are the parts of the Settings page, first one by default.
+var settingsTabs = []struct{ Key, Label string }{
+	{"alerts", "Alerts"}, {"services", "Services"}, {"notifications", "Notifications"}, {"security", "Security"},
+}
+
+func settingsTab(key string) string {
+	for _, t := range settingsTabs {
+		if t.Key == key {
+			return key
+		}
+	}
+	return settingsTabs[0].Key
+}
+
+type SettingsTab struct {
+	Key, Label string
+	Active     bool
+}
+
 type settingsData struct {
 	chrome
+	Tab             string
+	Tabs            []SettingsTab
 	Form            settingsForm
 	Errors          []string
 	Saved           bool
@@ -208,6 +230,8 @@ func formFromSettings(s map[string]string) settingsForm {
 		return def
 	}
 	f := settingsForm{ChatID: s["telegram_chat_id"], TokenStored: s["telegram_token"] != "",
+		CPULimit: or("cpu_limit_pct", strconv.Itoa(alert.DefaultLimits.CPU)), RAMLimit: or("ram_limit_pct", strconv.Itoa(alert.DefaultLimits.RAM)),
+		DiskLimit:      or("disk_limit_pct", strconv.Itoa(alert.DefaultLimits.Disk)),
 		ReportInterval: or("report_interval_s", strconv.Itoa(int(alert.DefaultReportInterval.Seconds()))), OfflineMisses: or("offline_misses", strconv.Itoa(alert.DefaultOfflineMisses)), CPUFor: or("cpu_for_min", "5"), RAMFor: or("ram_for_min", "5"), DiskFor: or("disk_for_min", "2"),
 		SvcFail: or("svc_fail_n", "3"), SvcOk: or("svc_ok_n", "2"), SvcSlow: or("svc_slow_ms", "1000"),
 		SvcCertDays: or("svc_cert_days", "30, 14, 7, 1"), SvcSlowAlert: s["svc_slow_alert"] == "1"}
@@ -217,7 +241,7 @@ func formFromSettings(s map[string]string) settingsForm {
 	return f
 }
 
-func (w *Web) renderSettings(rw http.ResponseWriter, r *http.Request, status int, form settingsForm, errs []string, saved bool) {
+func (w *Web) renderSettings(rw http.ResponseWriter, r *http.Request, status int, tab string, form settingsForm, errs []string, saved bool) {
 	rows, err := w.rows(r)
 	if err != nil {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
@@ -238,7 +262,11 @@ func (w *Web) renderSettings(rw http.ResponseWriter, r *http.Request, status int
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	w.render(rw, status, "settings", settingsData{chrome: w.chrome(r, "settings", rows), Form: form, Errors: errs, Saved: saved,
+	var tabs []SettingsTab
+	for _, t := range settingsTabs {
+		tabs = append(tabs, SettingsTab{t.Key, t.Label, t.Key == tab})
+	}
+	w.render(rw, status, "settings", settingsData{chrome: w.chrome(r, "settings", rows), Tab: tab, Tabs: tabs, Form: form, Errors: errs, Saved: saved,
 		PasswordChanged: r.URL.Query().Get("password") != "", PasskeysOn: w.passkeysOn(), Passkeys: passkeyRows(keys), PublicURL: w.publicURL,
 		PushKey: k.Public(), PushDevices: pushRows(devices)})
 }
@@ -249,7 +277,7 @@ func (w *Web) settingsPage(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	w.renderSettings(rw, r, http.StatusOK, formFromSettings(s), nil, r.URL.Query().Get("saved") != "")
+	w.renderSettings(rw, r, http.StatusOK, settingsTab(r.URL.Query().Get("tab")), formFromSettings(s), nil, r.URL.Query().Get("saved") != "")
 }
 
 var (
@@ -270,26 +298,29 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	form := settingsForm{ChatID: r.PostFormValue("telegram_chat_id"),
-		CPUFor: r.PostFormValue("cpu_for_min"), RAMFor: r.PostFormValue("ram_for_min"),
-		DiskFor: r.PostFormValue("disk_for_min"), TokenStored: s["telegram_token"] != ""}
-	if s["webhook_url"] != "" {
-		form.WebhookHost = hostOf(s["webhook_url"])
+	if err := r.ParseForm(); err != nil {
+		http.Error(rw, "bad request", http.StatusBadRequest)
+		return
 	}
-	// A form from before these fields existed keeps what is stored.
+	tab := settingsTab(r.PostFormValue("tab"))
+	// Each tab sends only its own fields, and a form from before a field
+	// existed lacks it: a field that is not sent keeps what is stored.
 	stored := formFromSettings(s)
 	pick := func(key, cur string) string {
-		if v := strings.TrimSpace(r.PostFormValue(key)); v != "" {
-			return v
+		if _, sent := r.PostForm[key]; sent {
+			return strings.TrimSpace(r.PostFormValue(key))
 		}
 		return cur
 	}
+	form := stored
+	form.ChatID = pick("telegram_chat_id", stored.ChatID)
+	form.CPULimit, form.RAMLimit, form.DiskLimit = pick("cpu_limit_pct", stored.CPULimit), pick("ram_limit_pct", stored.RAMLimit), pick("disk_limit_pct", stored.DiskLimit)
+	form.CPUFor, form.RAMFor, form.DiskFor = pick("cpu_for_min", stored.CPUFor), pick("ram_for_min", stored.RAMFor), pick("disk_for_min", stored.DiskFor)
 	form.SvcFail, form.SvcOk, form.SvcSlow = pick("svc_fail_n", stored.SvcFail), pick("svc_ok_n", stored.SvcOk), pick("svc_slow_ms", stored.SvcSlow)
 	form.SvcCertDays = pick("svc_cert_days", stored.SvcCertDays)
 	form.ReportInterval = pick("report_interval_s", stored.ReportInterval)
 	form.OfflineMisses = pick("offline_misses", stored.OfflineMisses)
 	// The checkbox follows a hidden "0", so an unchecked box still arrives.
-	form.SvcSlowAlert = stored.SvcSlowAlert
 	if vals, sent := r.PostForm["svc_slow_alert"]; sent {
 		form.SvcSlowAlert = slices.Contains(vals, "1")
 	}
@@ -315,6 +346,11 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 	if !wholeNumber(form.OfflineMisses, alert.MinOfflineMisses, alert.MaxOfflineMisses) {
 		errs = append(errs, fmt.Sprintf("Agent disconnected: enter a whole number of missed reports from %d to %d.", alert.MinOfflineMisses, alert.MaxOfflineMisses))
 	}
+	for _, f := range []struct{ label, value string }{{"CPU high", form.CPULimit}, {"Memory high", form.RAMLimit}, {"Disk full", form.DiskLimit}} {
+		if !wholeNumber(f.value, 1, 100) {
+			errs = append(errs, f.label+": enter a whole percent from 1 to 100.")
+		}
+	}
 	for _, f := range []struct{ label, value string }{{"CPU high", form.CPUFor}, {"Memory high", form.RAMFor}, {"Disk full", form.DiskFor}} {
 		if !wholeNumber(f.value, 0, 1440) {
 			errs = append(errs, f.label+": enter a whole number of minutes from 0 to 1440.")
@@ -333,12 +369,12 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 		errs = append(errs, "List certificate warning days from large to small, for example 30, 14, 7, 1.")
 	}
 	if len(errs) > 0 {
-		w.renderSettings(rw, r, http.StatusUnprocessableEntity, form, errs, false)
+		w.renderSettings(rw, r, http.StatusUnprocessableEntity, tab, form, errs, false)
 		return
 	}
 
 	values := map[string]string{"telegram_chat_id": form.ChatID, "report_interval_s": form.ReportInterval, "offline_misses": form.OfflineMisses,
-		"cpu_for_min": form.CPUFor, "ram_for_min": form.RAMFor, "disk_for_min": form.DiskFor,
+		"cpu_limit_pct": form.CPULimit, "ram_limit_pct": form.RAMLimit, "disk_limit_pct": form.DiskLimit, "cpu_for_min": form.CPUFor, "ram_for_min": form.RAMFor, "disk_for_min": form.DiskFor,
 		"svc_fail_n": form.SvcFail, "svc_ok_n": form.SvcOk, "svc_slow_ms": form.SvcSlow, "svc_cert_days": form.SvcCertDays, "svc_slow_alert": "0"}
 	if form.SvcSlowAlert {
 		values["svc_slow_alert"] = "1"
@@ -361,7 +397,7 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("settings saved")
-	http.Redirect(rw, r, "/settings?saved=1", http.StatusSeeOther)
+	http.Redirect(rw, r, "/settings?tab="+tab+"&saved=1", http.StatusSeeOther)
 }
 
 type testResult struct {

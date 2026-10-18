@@ -241,14 +241,14 @@ func TestInvalidAddressesAreDropped(t *testing.T) {
 	tok := e.enroll("web-01").AgentToken
 	rep, _ := json.Marshal(protocol.Report{ProtocolVersion: 1, TS: 100,
 		Inventory: &protocol.Inventory{Hostname: "web-01", Interfaces: []protocol.Interface{{Name: "eth0",
-			IPv4: []string{"192.168.10.10", "<b>not-an-ip</b>", strings.Repeat("9", 5000)},
+			IPv4: []string{"192.168.1.10", "<b>not-an-ip</b>", strings.Repeat("9", 5000)},
 			IPv6: []string{"2001:db8::10", "zzzz", "fe80::1%" + strings.Repeat("z", 5000)}}}}})
 	if w := e.post("/api/v1/agent/report", tok, rep); w.Code != http.StatusNoContent {
 		t.Fatalf("report: %d %s", w.Code, w.Body)
 	}
 	hosts, _ := e.st.Hosts(t.Context())
 	ifc := hosts[0].Inventory.Interfaces[0]
-	if len(ifc.IPv4) != 1 || ifc.IPv4[0] != "192.168.10.10" {
+	if len(ifc.IPv4) != 1 || ifc.IPv4[0] != "192.168.1.10" {
 		t.Errorf("only strings that parse as addresses may be stored and shown: ipv4 = %d entries", len(ifc.IPv4))
 	}
 	if len(ifc.IPv6) != 2 || ifc.IPv6[0] != "2001:db8::10" || ifc.IPv6[1] != "fe80::1" {
@@ -303,7 +303,7 @@ func TestProxmoxDataIsSanitized(t *testing.T) {
 	long := strings.Repeat("x", 400)
 	pve := &protocol.Proxmox{Detected: true, Configured: true, Version: long, Node: "pve-01", Error: long,
 		Guests: []protocol.Guest{
-			{ID: 101, Type: "lxc", Name: long, Status: "running", IPs: []string{"192.168.10.21", "<b>x</b>"}},
+			{ID: 101, Type: "lxc", Name: long, Status: "running", IPs: []string{"192.168.1.21", "<b>x</b>"}},
 			{ID: 102, Type: "docker", Name: "wrong type", Status: "running"},
 			{ID: 103, Type: "qemu", Name: "vm", Status: "exploded"},
 		},
@@ -318,7 +318,7 @@ func TestProxmoxDataIsSanitized(t *testing.T) {
 	if got == nil || len(got.Version) != 255 || len(got.Error) != 255 {
 		t.Fatalf("proxmox = %+v", got)
 	}
-	if len(got.Guests) != 2 || len(got.Guests[0].Name) != 255 || len(got.Guests[0].IPs) != 1 || got.Guests[0].IPs[0] != "192.168.10.21" {
+	if len(got.Guests) != 2 || len(got.Guests[0].Name) != 255 || len(got.Guests[0].IPs) != 1 || got.Guests[0].IPs[0] != "192.168.1.21" {
 		t.Errorf("a guest of an unknown type is dropped, names are clipped, addresses validated: %d guests", len(got.Guests))
 	}
 	if got.Guests[1].ID != 103 || got.Guests[1].Status != "unknown" {
@@ -552,5 +552,27 @@ func TestReportReplyNamesTheInterval(t *testing.T) {
 	// An agent that sends no interval ignores the header and keeps its own.
 	if w := send(3, 0); w.Header().Get(protocol.IntervalHeader) != "120" || interval() != 0 {
 		t.Errorf("older agent: header %q, stored %v; want the header and 0", w.Header().Get(protocol.IntervalHeader), interval())
+	}
+}
+
+func TestReportReplyNamesTheHostInterval(t *testing.T) {
+	e := setup(t)
+	tok := e.enroll("web-01").AgentToken
+	hosts, _ := e.st.Hosts(t.Context())
+	e.st.SetSettings(t.Context(), map[string]string{"report_interval_s": "60"})
+	e.st.SetHostReportInterval(t.Context(), hosts[0].ID, 300)
+	b, _ := json.Marshal(protocol.Report{ProtocolVersion: 1, AgentVersion: "0.2.2", TS: 1, IntervalS: 30})
+	w := e.post("/api/v1/agent/report", tok, b)
+	if w.Code != http.StatusNoContent || w.Header().Get(protocol.IntervalHeader) != "300" {
+		t.Fatalf("report: %d, header %q; want 204 and the host's 300", w.Code, w.Header().Get(protocol.IntervalHeader))
+	}
+	hosts, _ = e.st.Hosts(t.Context())
+	if hosts[0].ReportInterval != 5*time.Minute {
+		t.Errorf("stored told interval %v, want 5m so the offline limit follows it", hosts[0].ReportInterval)
+	}
+	var self protocol.SelfResponse
+	json.Unmarshal(e.get("/api/v1/agent/self", tok).Body.Bytes(), &self)
+	if self.OfflineAfterS != 615 {
+		t.Errorf("offline after %d s, want 615 (2 x 300 + 15)", self.OfflineAfterS)
 	}
 }
