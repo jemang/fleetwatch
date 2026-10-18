@@ -36,11 +36,11 @@ func kinds(conds []Condition) string {
 
 func TestRulesFromSettings(t *testing.T) {
 	r := RulesFrom(nil)
-	if r != (Rules{OfflineAfter: 60 * time.Second, CPUFor: 5 * time.Minute, RAMFor: 5 * time.Minute, DiskFor: 2 * time.Minute, StorageFor: 2 * time.Minute}) {
+	if r != (Rules{OfflineMisses: 3, CPUFor: 5 * time.Minute, RAMFor: 5 * time.Minute, DiskFor: 2 * time.Minute, StorageFor: 2 * time.Minute}) {
 		t.Errorf("defaults = %+v", r)
 	}
-	r = RulesFrom(map[string]string{"offline_after_s": "120", "cpu_for_min": "0", "ram_for_min": "junk", "disk_for_min": "10"})
-	if r.OfflineAfter != 2*time.Minute || r.CPUFor != 0 || r.RAMFor != 5*time.Minute || r.DiskFor != 10*time.Minute {
+	r = RulesFrom(map[string]string{"offline_misses": "5", "cpu_for_min": "0", "ram_for_min": "junk", "disk_for_min": "10"})
+	if r.OfflineMisses != 5 || r.CPUFor != 0 || r.RAMFor != 5*time.Minute || r.DiskFor != 10*time.Minute {
 		t.Errorf("from settings = %+v (an unreadable value keeps the default)", r)
 	}
 }
@@ -71,15 +71,15 @@ func TestEvaluateThresholds(t *testing.T) {
 func TestEvaluateOfflineHidesOtherRules(t *testing.T) {
 	h := onlineHost(1, "web-01")
 	h.Metrics.CPUPct = f(99)
-	h.LastSeen = t0.Add(-50 * time.Second)
+	h.LastSeen = t0.Add(-100 * time.Second)
 	conds, unknown := Evaluate([]store.Host{h}, t0, RulesFrom(nil), map[GuestKey]bool{})
 	if len(conds) != 0 || !unknown[1] {
-		t.Errorf("50s without a report: no alert yet, but nothing is known either: %q %v", kinds(conds), unknown)
+		t.Errorf("100s without a report: no alert yet, but nothing is known either: %q %v", kinds(conds), unknown)
 	}
-	h.LastSeen = t0.Add(-60 * time.Second)
+	h.LastSeen = t0.Add(-105 * time.Second)
 	conds, unknown = Evaluate([]store.Host{h}, t0, RulesFrom(nil), map[GuestKey]bool{})
 	if kinds(conds) != "host_offline:" || conds[0].For != 0 || !unknown[1] {
-		t.Errorf("60s without a report: only host_offline: %q", kinds(conds))
+		t.Errorf("105s without a report (3 missed at 30s): only host_offline: %q", kinds(conds))
 	}
 	never := store.Host{ID: 2, Name: "new"}
 	if conds, _ := Evaluate([]store.Host{never}, t0, RulesFrom(nil), map[GuestKey]bool{}); len(conds) != 0 {
@@ -355,7 +355,7 @@ func TestEngineOfflineAndBack(t *testing.T) {
 	w := newWorld(t)
 	w.report("web-01", protocol.Metrics{CPUPct: f(95)})
 	w.tick(0) // cpu pending
-	w.tick(61 * time.Second)
+	w.tick(106 * time.Second)
 	if w.states() != "cpu_high=pending host_offline=firing" || len(w.sent) != 1 || w.sent[0] != "firing web-01 host_offline " {
 		t.Fatalf("offline: %q, sent %v (the pending CPU alert is left alone: nothing is known)", w.states(), w.sent)
 	}
@@ -389,7 +389,7 @@ func TestEngineRetriesFailedDeliveryForAnHour(t *testing.T) {
 	w.fail = true
 	hot := failed
 	hot.Mem = &protocol.Mem{Total: 100, Used: 95}
-	w.eng.Rules = &Rules{OfflineAfter: time.Minute}
+	w.eng.Rules = &Rules{OfflineMisses: 3}
 	w.report("web-01", hot)
 	w.tick(0)
 	w.now = w.now.Add(61 * time.Minute)
@@ -438,5 +438,69 @@ func TestDisabledHostRaisesNothingAndItsAlertsEnd(t *testing.T) {
 	w.tick(time.Hour)
 	if w.states() != "host_offline=resolved" {
 		t.Errorf("a disabled host must raise nothing: %q", w.states())
+	}
+}
+
+func TestReportIntervalAndStaleAfter(t *testing.T) {
+	for v, want := range map[string]time.Duration{"": 30 * time.Second, "60": time.Minute, "10": 10 * time.Second, "600": 10 * time.Minute, "9": 30 * time.Second, "601": 30 * time.Second, "junk": 30 * time.Second} {
+		if got := ReportInterval(map[string]string{"report_interval_s": v}); got != want {
+			t.Errorf("report_interval_s %q: %v, want %v", v, got, want)
+		}
+	}
+	// 15 s keeps the limit agents before 0.2.1 were built for.
+	for in, want := range map[time.Duration]time.Duration{0: 75 * time.Second, 15 * time.Second: 45 * time.Second, 30 * time.Second: 75 * time.Second, 5 * time.Minute: 615 * time.Second} {
+		if got := StaleAfter(in); got != want {
+			t.Errorf("StaleAfter(%v) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestEvaluateOfflineFollowsTheHostInterval(t *testing.T) {
+	h := onlineHost(1, "slow-01")
+	h.ReportInterval = 5 * time.Minute
+	h.LastSeen = t0.Add(-8 * time.Minute)
+	if conds, unknown := Evaluate([]store.Host{h}, t0, RulesFrom(nil), map[GuestKey]bool{}); len(conds) != 0 || unknown[1] {
+		t.Errorf("8 min silent at a 5 min interval is not yet offline: %q %v", kinds(conds), unknown)
+	}
+	h.LastSeen = t0.Add(-11 * time.Minute)
+	if conds, unknown := Evaluate([]store.Host{h}, t0, RulesFrom(nil), map[GuestKey]bool{}); len(conds) != 0 || !unknown[1] {
+		t.Errorf("11 min silent at a 5 min interval is offline but not 3 missed reports: %q %v", kinds(conds), unknown)
+	}
+	h.LastSeen = t0.Add(-15*time.Minute - 15*time.Second)
+	if conds, _ := Evaluate([]store.Host{h}, t0, RulesFrom(nil), map[GuestKey]bool{}); kinds(conds) != "host_offline:" {
+		t.Errorf("3 missed reports at a 5 min interval: %q, want host_offline", kinds(conds))
+	}
+}
+
+func TestOfflineMissesAndAlertAfter(t *testing.T) {
+	for v, want := range map[string]int{"": 3, "2": 2, "20": 20, "1": 3, "21": 3, "junk": 3} {
+		if got := RulesFrom(map[string]string{"offline_misses": v}).OfflineMisses; got != want {
+			t.Errorf("offline_misses %q: %d, want %d", v, got, want)
+		}
+	}
+	// One report may be late by up to 15 s, as in StaleAfter; an unknown
+	// interval counts as the default.
+	for _, c := range []struct {
+		interval time.Duration
+		misses   int
+		want     time.Duration
+	}{{0, 3, 105 * time.Second}, {30 * time.Second, 3, 105 * time.Second}, {15 * time.Second, 3, time.Minute}, {10 * time.Second, 2, 35 * time.Second}, {time.Minute, 5, 315 * time.Second}} {
+		if got := OfflineAlertAfter(c.interval, c.misses); got != c.want {
+			t.Errorf("OfflineAlertAfter(%v, %d) = %v, want %v", c.interval, c.misses, got, c.want)
+		}
+	}
+}
+
+func TestEvaluateOfflineCountsMissedReports(t *testing.T) {
+	h := onlineHost(1, "web-01")
+	h.ReportInterval = 30 * time.Second
+	r := RulesFrom(map[string]string{"offline_misses": "5"})
+	h.LastSeen = t0.Add(-160 * time.Second)
+	if conds, _ := Evaluate([]store.Host{h}, t0, r, map[GuestKey]bool{}); len(conds) != 0 {
+		t.Errorf("4 missed reports with 5 required: %q", kinds(conds))
+	}
+	h.LastSeen = t0.Add(-165 * time.Second)
+	if conds, _ := Evaluate([]store.Host{h}, t0, r, map[GuestKey]bool{}); kinds(conds) != "host_offline:" {
+		t.Errorf("5 missed reports: %q, want host_offline", kinds(conds))
 	}
 }

@@ -31,7 +31,7 @@ func TestSendSuccess(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
-	err := New(srv.URL+"/", "tok").Send(context.Background(), protocol.Report{ProtocolVersion: 1, TS: 42})
+	_, err := New(srv.URL+"/", "tok").Send(context.Background(), protocol.Report{ProtocolVersion: 1, TS: 42})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,21 +52,21 @@ func TestSendErrorKinds(t *testing.T) {
 	}))
 	c := New(srv.URL, "tok")
 
-	if err := c.Send(context.Background(), protocol.Report{}); !errors.Is(err, ErrUnauthorized) {
+	if _, err := c.Send(context.Background(), protocol.Report{}); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("401: err = %v, want ErrUnauthorized", err)
 	}
 	status.Store(http.StatusConflict)
 	var replay *ReplayError
-	if err := c.Send(context.Background(), protocol.Report{}); !errors.As(err, &replay) || replay.LastTS != 99 {
+	if _, err := c.Send(context.Background(), protocol.Report{}); !errors.As(err, &replay) || replay.LastTS != 99 {
 		t.Errorf("409: err = %v, want ReplayError with LastTS 99", err)
 	}
 	status.Store(http.StatusInternalServerError)
 	var se *StatusError
-	if err := c.Send(context.Background(), protocol.Report{}); !errors.As(err, &se) || se.Code != 500 {
+	if _, err := c.Send(context.Background(), protocol.Report{}); !errors.As(err, &se) || se.Code != 500 {
 		t.Errorf("500: err = %v, want StatusError 500", err)
 	}
 	srv.Close()
-	err := c.Send(context.Background(), protocol.Report{})
+	_, err := c.Send(context.Background(), protocol.Report{})
 	se = nil
 	if err == nil || errors.As(err, &se) || errors.Is(err, ErrUnauthorized) {
 		t.Errorf("unreachable Hub: err = %v, want a plain transport error", err)
@@ -82,7 +82,7 @@ func TestSendNeverFollowsRedirects(t *testing.T) {
 	}))
 	defer srv.Close()
 	var se *StatusError
-	err := New(srv.URL, "tok").Send(context.Background(), protocol.Report{})
+	_, err := New(srv.URL, "tok").Send(context.Background(), protocol.Report{})
 	if !errors.As(err, &se) || se.Code != http.StatusTemporaryRedirect || hits.Load() != 0 {
 		t.Errorf("err = %v, redirect target hits = %d; the token must not travel to a redirect target", err, hits.Load())
 	}
@@ -134,13 +134,32 @@ func TestSendDialsAgainAfterAFailedRequest(t *testing.T) {
 	c := New(srv.URL, "tok")
 	c.HTTP = srv.Client()
 	c.HTTP.Timeout = 300 * time.Millisecond
-	if err := c.Send(context.Background(), protocol.Report{TS: 1}); err == nil {
+	if _, err := c.Send(context.Background(), protocol.Report{TS: 1}); err == nil {
 		t.Fatal("the hanging request must fail")
 	}
-	if err := c.Send(context.Background(), protocol.Report{TS: 2}); err != nil {
+	if _, err := c.Send(context.Background(), protocol.Report{TS: 2}); err != nil {
 		t.Fatal(err)
 	}
 	if n := conns.Load(); n != 2 {
 		t.Errorf("connections opened = %d, want 2: the second report reused the connection whose answer never came", n)
+	}
+}
+
+func TestSendReturnsTheHubInterval(t *testing.T) {
+	var header atomic.Value
+	header.Store("")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v := header.Load().(string); v != "" {
+			w.Header().Set(protocol.IntervalHeader, v)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	for v, want := range map[string]time.Duration{"45": 45 * time.Second, "": 0, "junk": 0, "-5": 0} {
+		header.Store(v)
+		if got, err := c.Send(context.Background(), protocol.Report{}); err != nil || got != want {
+			t.Errorf("header %q: %v %v, want %v", v, got, err, want)
+		}
 	}
 }

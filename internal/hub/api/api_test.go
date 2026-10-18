@@ -513,3 +513,44 @@ func TestReportsAreLogged(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+func TestReportReplyNamesTheInterval(t *testing.T) {
+	e := setup(t)
+	tok := e.enroll("web-01").AgentToken
+	send := func(ts int64, intervalS int) *httptest.ResponseRecorder {
+		t.Helper()
+		b, _ := json.Marshal(protocol.Report{ProtocolVersion: 1, AgentVersion: "0.2.1", TS: ts, IntervalS: intervalS})
+		e.now = e.now.Add(time.Minute)
+		w := e.post("/api/v1/agent/report", tok, b)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("report: %d %s", w.Code, w.Body)
+		}
+		return w
+	}
+	interval := func() time.Duration {
+		hosts, _ := e.st.Hosts(t.Context())
+		return hosts[0].ReportInterval
+	}
+	offlineAfter := func() int64 {
+		var self protocol.SelfResponse
+		json.Unmarshal(e.get("/api/v1/agent/self", tok).Body.Bytes(), &self)
+		return self.OfflineAfterS
+	}
+	if got := offlineAfter(); got != 75 {
+		t.Errorf("before any report the Hub waits %d s, want 75", got)
+	}
+	if w := send(1, 15); w.Header().Get(protocol.IntervalHeader) != "30" || interval() != 30*time.Second {
+		t.Errorf("default: header %q, stored %v; want 30 and 30s", w.Header().Get(protocol.IntervalHeader), interval())
+	}
+	e.st.SetSettings(t.Context(), map[string]string{"report_interval_s": "120"})
+	if w := send(2, 30); w.Header().Get(protocol.IntervalHeader) != "120" || interval() != 2*time.Minute {
+		t.Errorf("after the setting changed: header %q, stored %v", w.Header().Get(protocol.IntervalHeader), interval())
+	}
+	if got := offlineAfter(); got != 255 {
+		t.Errorf("at 120 s the Hub waits %d s, want 255", got)
+	}
+	// An agent that sends no interval ignores the header and keeps its own.
+	if w := send(3, 0); w.Header().Get(protocol.IntervalHeader) != "120" || interval() != 0 {
+		t.Errorf("older agent: header %q, stored %v; want the header and 0", w.Header().Get(protocol.IntervalHeader), interval())
+	}
+}

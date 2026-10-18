@@ -143,9 +143,9 @@ func (s *Store) AcceptReport(ctx context.Context, agentID int64, r protocol.Repo
 	}
 	defer tx.Rollback()
 	res, err := tx.ExecContext(ctx,
-		`UPDATE agents SET last_report_ts = ?, last_seen = ?, agent_version = ?, protocol_version = ?
+		`UPDATE agents SET last_report_ts = ?, last_seen = ?, agent_version = ?, protocol_version = ?, report_interval_s = ?
 		 WHERE id = ? AND last_report_ts < ?`,
-		r.TS, now.Unix(), r.AgentVersion, r.ProtocolVersion, agentID, r.TS)
+		r.TS, now.Unix(), r.AgentVersion, r.ProtocolVersion, max(r.IntervalS, 0), agentID, r.TS)
 	if err != nil {
 		return err
 	}
@@ -184,21 +184,26 @@ type Host struct {
 	LastSeen     time.Time
 	AgentVersion string
 	Disabled     bool // the Hub refuses this host's agent
+	// ReportInterval is how long the agent waits after its last report; 0
+	// when it does not say.
+	ReportInterval time.Duration
 }
 
 // shownName is how a host is named on every page and in alerts.
 const shownName = `COALESCE(NULLIF(h.label, ''), h.name)`
 
-const hostSelect = `SELECT h.id, ` + shownName + `, h.label, h.name, h.metrics_json, h.inventory_json, a.last_seen, a.agent_version, a.disabled
+const hostSelect = `SELECT h.id, ` + shownName + `, h.label, h.name, h.metrics_json, h.inventory_json, a.last_seen, a.agent_version, a.disabled, a.report_interval_s
 	FROM hosts h JOIN agents a ON a.host_id = h.id`
 
 func scanHost(sc interface{ Scan(...any) error }) (Host, error) {
 	var h Host
 	var metrics, inv sql.NullString
 	var seen sql.NullInt64
-	if err := sc.Scan(&h.ID, &h.Name, &h.Label, &h.Hostname, &metrics, &inv, &seen, &h.AgentVersion, &h.Disabled); err != nil {
+	var intervalS int64
+	if err := sc.Scan(&h.ID, &h.Name, &h.Label, &h.Hostname, &metrics, &inv, &seen, &h.AgentVersion, &h.Disabled, &intervalS); err != nil {
 		return h, err
 	}
+	h.ReportInterval = time.Duration(intervalS) * time.Second
 	if metrics.Valid {
 		h.Metrics = new(protocol.Metrics)
 		if err := json.Unmarshal([]byte(metrics.String), h.Metrics); err != nil {

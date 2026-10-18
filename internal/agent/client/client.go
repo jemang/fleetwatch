@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,23 +47,23 @@ func New(hubURL, token string) *Client {
 	}
 }
 
-func (c *Client) post(ctx context.Context, path string, body any, compress bool) (int, []byte, error) {
+func (c *Client) post(ctx context.Context, path string, body any, compress bool) (int, http.Header, []byte, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if compress {
 		var buf bytes.Buffer
 		zw := gzip.NewWriter(&buf)
 		zw.Write(b)
 		if err := zw.Close(); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		b = buf.Bytes()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.HubURL+path, bytes.NewReader(b))
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if compress {
@@ -79,11 +80,11 @@ func (c *Client) post(ctx context.Context, path string, body any, compress bool)
 		// minutes), so the next one starts from an empty pool.
 		c.HTTP.CloseIdleConnections()
 		c.HTTP.Transport = freshTransport(c.HTTP.Transport)
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	return resp.StatusCode, out, nil
+	return resp.StatusCode, resp.Header, out, nil
 }
 
 // Self asks the Hub how it knows this agent.
@@ -153,27 +154,33 @@ func freshTransport(rt http.RoundTripper) http.RoundTripper {
 	return rt
 }
 
-func (c *Client) Send(ctx context.Context, r protocol.Report) error {
-	code, body, err := c.post(ctx, "/api/v1/agent/report", r, true)
+// Send delivers one report. It returns the interval the Hub asks for before
+// the next one, or 0 when the Hub names none (before 0.2.1).
+func (c *Client) Send(ctx context.Context, r protocol.Report) (time.Duration, error) {
+	code, header, body, err := c.post(ctx, "/api/v1/agent/report", r, true)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	switch code {
 	case http.StatusNoContent:
-		return nil
+		n, err := strconv.Atoi(header.Get(protocol.IntervalHeader))
+		if err != nil || n < 0 {
+			return 0, nil
+		}
+		return time.Duration(n) * time.Second, nil
 	case http.StatusUnauthorized:
-		return ErrUnauthorized
+		return 0, ErrUnauthorized
 	case http.StatusConflict:
 		var rr protocol.ReplayResponse
 		json.Unmarshal(body, &rr)
-		return &ReplayError{LastTS: rr.LastTS}
+		return 0, &ReplayError{LastTS: rr.LastTS}
 	}
-	return &StatusError{Code: code}
+	return 0, &StatusError{Code: code}
 }
 
 func (c *Client) Enroll(ctx context.Context, req protocol.EnrollRequest) (protocol.EnrollResponse, error) {
 	var out protocol.EnrollResponse
-	code, body, err := c.post(ctx, "/api/v1/agent/enroll", req, false)
+	code, _, body, err := c.post(ctx, "/api/v1/agent/enroll", req, false)
 	if err != nil {
 		return out, err
 	}

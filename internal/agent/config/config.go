@@ -19,7 +19,7 @@ import (
 
 const (
 	DefaultPath     = "/etc/fleetwatch/agent.yaml"
-	DefaultInterval = 15 * time.Second
+	DefaultInterval = 30 * time.Second
 	MinInterval     = 5 * time.Second
 )
 

@@ -21,7 +21,14 @@ type Report struct {
 	TS              int64      `json:"ts"`
 	Metrics         Metrics    `json:"metrics"`
 	Inventory       *Inventory `json:"inventory,omitempty"`
+	// IntervalS is how long the agent waits between reports. An agent that
+	// sends it follows the interval the Hub names in IntervalHeader.
+	IntervalS int `json:"interval_s,omitempty"`
 }
+
+// IntervalHeader on an accepted report's reply names, in seconds, how long
+// the agent should wait before its next report.
+const IntervalHeader = "Fleetwatch-Report-Interval"
 
 // Metrics fields are omitted when their collector produced no value.
 type Metrics struct {
@@ -133,4 +140,7 @@ type SelfResponse struct {
 	Name     string `json:"name"`
 	LastSeen int64  `json:"last_seen"`
 	Now      int64  `json:"now"`
+	// OfflineAfterS is how long the Hub waits for this agent's next report
+	// before it counts the host as offline. Hubs before 0.2.1 leave it out.
+	OfflineAfterS int64 `json:"offline_after_s,omitempty"`
 }

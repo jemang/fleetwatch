@@ -34,8 +34,8 @@ const (
 	usage    = "usage: fleetwatch-agent <enroll|run|status|upgrade|uninstall|version>"
 	unitName = "fleetwatch-agent.service"
 	svcUser  = "fleetwatch"
-	// onlineWithin is the Hub's own limit: a host is offline 45 seconds after
-	// its last report.
+	// onlineWithin is the limit of Hubs before 0.2.1, which do not name their
+	// own: a host is offline 45 seconds after its last report.
 	onlineWithin = 45 * time.Second
 )
 
@@ -220,7 +220,11 @@ func status(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	age := time.Duration(self.Now-self.LastSeen) * time.Second
-	if age > onlineWithin {
+	limit := onlineWithin
+	if self.OfflineAfterS > 0 {
+		limit = time.Duration(self.OfflineAfterS) * time.Second
+	}
+	if age > limit {
 		fmt.Fprintf(stdout, "Status: Offline (last report %s)\n", ago(age))
 		return 1
 	}

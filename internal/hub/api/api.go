@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/limit"
 	"fleetwatch/internal/hub/live"
 	"fleetwatch/internal/hub/store"
@@ -124,7 +125,8 @@ func (a *API) self(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	resp := protocol.SelfResponse{HostID: host.ID, Name: host.Name, Now: a.now().Unix()}
+	resp := protocol.SelfResponse{HostID: host.ID, Name: host.Name, Now: a.now().Unix(),
+		OfflineAfterS: int64(alert.StaleAfter(host.ReportInterval) / time.Second)}
 	if !host.LastSeen.IsZero() {
 		resp.LastSeen = host.LastSeen.Unix()
 	}
@@ -239,6 +241,17 @@ func (a *API) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sanitize(&rep)
+	settings, err := a.st.Settings(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	told := int(alert.ReportInterval(settings) / time.Second)
+	// An agent that names its interval adopts the one in this reply, so that
+	// is how long it waits now.
+	if rep.IntervalS > 0 {
+		rep.IntervalS = told
+	}
 	err = a.st.AcceptReport(r.Context(), agent.ID, rep, now)
 	var replay *store.ReplayError
 	if errors.As(err, &replay) {
@@ -265,6 +278,7 @@ func (a *API) report(w http.ResponseWriter, r *http.Request) {
 	log.Printf("report from %s: agent %s, cpu %s, ram %s, disk %s", name, rep.AgentVersion, pct(point.CPU), pct(point.Mem), pct(point.Disk))
 	a.st.QueueMetric(point)
 	a.bus.Publish(live.Event{Kind: live.HostUpdated, HostID: agent.HostID})
+	w.Header().Set(protocol.IntervalHeader, strconv.Itoa(told))
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -28,16 +28,17 @@ func (f *fakeSampler) ResendInventory() { f.resends++ }
 type fakeSender struct {
 	errs []error
 	sent []protocol.Report
+	hub  time.Duration // the interval the Hub names in its reply
 }
 
-func (f *fakeSender) Send(_ context.Context, r protocol.Report) error {
+func (f *fakeSender) Send(_ context.Context, r protocol.Report) (time.Duration, error) {
 	f.sent = append(f.sent, r)
 	if len(f.errs) == 0 {
-		return nil
+		return f.hub, nil
 	}
 	err := f.errs[0]
 	f.errs = f.errs[1:]
-	return err
+	return 0, err
 }
 
 func newRunner(errs ...error) (*Runner, *fakeSampler, *fakeSender) {
@@ -165,5 +166,28 @@ func TestRunStopsWhenSleepReportsCancel(t *testing.T) {
 	}
 	if len(se.sent) != 3 {
 		t.Errorf("sent %d reports, want 3", len(se.sent))
+	}
+}
+
+func TestStepAdoptsTheHubInterval(t *testing.T) {
+	r, _, se := newRunner()
+	var logged []string
+	r.Log = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	se.hub = time.Minute
+	if d := r.Step(context.Background()); d != time.Minute || r.Interval != time.Minute {
+		t.Errorf("delay %v, interval %v; want the Hub's 1m", d, r.Interval)
+	}
+	if se.sent[0].IntervalS != 15 {
+		t.Errorf("the first report names %d s, want the configured 15", se.sent[0].IntervalS)
+	}
+	r.Step(context.Background())
+	if se.sent[1].IntervalS != 60 || len(logged) != 1 || !strings.Contains(logged[0], "1m0s") {
+		t.Errorf("second report %d s, log %q; want 60 and one line", se.sent[1].IntervalS, logged)
+	}
+	for _, bad := range []time.Duration{0, time.Second, 2 * time.Hour} {
+		se.hub = bad
+		if d := r.Step(context.Background()); d != time.Minute {
+			t.Errorf("Hub interval %v: delay %v, want the 1m kept", bad, d)
+		}
 	}
 }

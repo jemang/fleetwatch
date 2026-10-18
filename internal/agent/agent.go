@@ -21,6 +21,9 @@ const (
 	UnauthorizedRetry    = 5 * time.Minute
 	MaxUnauthorizedRetry = time.Hour
 	MaxBackoff           = 60 * time.Second
+	// An interval the Hub asks for outside these bounds is ignored.
+	MinHubInterval = 5 * time.Second
+	MaxHubInterval = time.Hour
 )
 
 type Sampler interface {
@@ -29,7 +32,8 @@ type Sampler interface {
 }
 
 type Sender interface {
-	Send(ctx context.Context, r protocol.Report) error
+	// Send returns the interval the Hub asks for, or 0 when it names none.
+	Send(ctx context.Context, r protocol.Report) (time.Duration, error)
 }
 
 type Runner struct {
@@ -65,7 +69,8 @@ func (r *Runner) Step(ctx context.Context) time.Duration {
 	}
 	r.lastTS = ts
 
-	err := r.Sender.Send(ctx, protocol.Report{ProtocolVersion: protocol.Version, AgentVersion: Version, TS: ts, Metrics: m, Inventory: inv})
+	hub, err := r.Sender.Send(ctx, protocol.Report{ProtocolVersion: protocol.Version, AgentVersion: Version, TS: ts,
+		IntervalS: int(r.Interval / time.Second), Metrics: m, Inventory: inv})
 	if err != nil && inv != nil {
 		r.Sampler.ResendInventory()
 	}
@@ -78,6 +83,10 @@ func (r *Runner) Step(ctx context.Context) time.Duration {
 		if r.rejected > 0 {
 			r.Log("the Hub accepts the agent again")
 			r.rejected = 0
+		}
+		if hub >= MinHubInterval && hub <= MaxHubInterval && hub != r.Interval {
+			r.Log("the Hub sets the report interval to %s, was %s", hub, r.Interval)
+			r.Interval = hub
 		}
 		return r.Interval
 	case errors.Is(err, client.ErrUnauthorized):

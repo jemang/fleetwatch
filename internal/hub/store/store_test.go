@@ -266,3 +266,20 @@ func TestHostLabelSurvivesReportsAndNamesTheHost(t *testing.T) {
 		t.Errorf("unknown host: err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestAcceptReportKeepsTheReportInterval(t *testing.T) {
+	s := open(t)
+	agentID, hostID := enrolled(t, s)
+	if h, _ := s.Host(ctx, hostID); h.ReportInterval != 0 {
+		t.Errorf("before any report: %v, want 0 (unknown)", h.ReportInterval)
+	}
+	s.AcceptReport(ctx, agentID, protocol.Report{ProtocolVersion: 1, TS: 1, IntervalS: 60}, t0)
+	if h, _ := s.Host(ctx, hostID); h.ReportInterval != time.Minute {
+		t.Errorf("after a report with interval_s 60: %v", h.ReportInterval)
+	}
+	// An agent that sends no interval (older than 0.2.1) follows its own file.
+	s.AcceptReport(ctx, agentID, protocol.Report{ProtocolVersion: 1, TS: 2}, t0.Add(time.Minute))
+	if hs, _ := s.Hosts(ctx); len(hs) != 1 || hs[0].ReportInterval != 0 {
+		t.Errorf("after a report without interval_s: %+v", hs)
+	}
+}

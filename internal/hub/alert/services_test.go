@@ -284,7 +284,7 @@ func TestServiceDownUnderSilentHostIsHeldBack(t *testing.T) {
 	w := newWorld(t)
 	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
 	id := w.hostedService("Proxmox", "https://pve.lan", "pve-2")
-	w.now = w.now.Add(50 * time.Second) // the host stopped reporting
+	w.now = w.now.Add(80 * time.Second) // the host stopped reporting
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "timeout"})
 	w.tick(15 * time.Second)
 	if got := w.serviceMessages(); len(got) != 0 || strings.Contains(w.states(), "svc_down") {
@@ -361,7 +361,7 @@ func TestServiceRecoveredDuringHostOutageSendsNothing(t *testing.T) {
 	w := newWorld(t)
 	w.report("pve-2", protocol.Metrics{CPUPct: f(10)})
 	id := w.hostedService("Proxmox", "https://pve.lan", "pve-2")
-	w.now = w.now.Add(50 * time.Second)
+	w.now = w.now.Add(80 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "down", Since: w.now.Unix(), Error: "timeout"})
 	w.tick(15 * time.Second)
 	w.check(id, "https://pve.lan", store.CheckState{State: "online", OK: true, Since: w.now.Unix()})
@@ -392,7 +392,7 @@ func TestOfflineMessageNamesTheHostServices(t *testing.T) {
 	w.hostedService("A-app", "https://a.lan", "pve-2")
 	paused := w.hostedService("C-app", "https://c.lan", "pve-2")
 	w.st.SetServiceEnabled(context.Background(), paused, false)
-	w.tick(70 * time.Second)
+	w.tick(110 * time.Second)
 	var off *Message
 	for i := range w.msgs {
 		if w.msgs[i].Kind == KindOffline {

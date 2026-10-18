@@ -272,11 +272,15 @@ func TestFmtBytes(t *testing.T) {
 }
 
 func TestOnlineBoundary(t *testing.T) {
-	if !Online(now.Add(-45*time.Second), now) {
-		t.Error("45 seconds since the last report is still online")
+	seen := func(ago, interval time.Duration) store.Host {
+		return store.Host{LastSeen: now.Add(-ago), ReportInterval: interval}
 	}
-	if Online(now.Add(-46*time.Second), now) || Online(time.Time{}, now) {
-		t.Error("more than 45 seconds, or never, is offline")
+	// An agent that does not name its interval counts as 30 s: 75 s.
+	if !Online(seen(75*time.Second, 0), now) || Online(seen(76*time.Second, 0), now) || Online(store.Host{}, now) {
+		t.Error("unknown interval: online up to 75 s, offline after, and never reported is offline")
+	}
+	if !Online(seen(4*time.Minute, 2*time.Minute), now) || Online(seen(256*time.Second, 2*time.Minute), now) {
+		t.Error("at a 2 min interval a host is online up to 255 s")
 	}
 }
 

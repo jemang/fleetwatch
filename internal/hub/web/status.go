@@ -29,7 +29,7 @@ func (w *Watcher) Tick(ctx context.Context) error {
 	now := w.now()
 	next := make(map[int64]bool, len(hosts))
 	for _, h := range hosts {
-		on := Online(h.LastSeen, now)
+		on := Online(h, now)
 		next[h.ID] = on
 		if was, known := w.state[h.ID]; known && was != on {
 			w.bus.Publish(live.Event{Kind: live.HostUpdated, HostID: h.ID})

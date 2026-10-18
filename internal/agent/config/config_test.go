@@ -25,7 +25,7 @@ func TestLoadFileAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.HubURL != "https://hub.example.com" || c.AgentID != "7" || c.AgentToken != "secret" || c.Interval != 15*time.Second || c.AllowInsecureHTTP {
+	if c.HubURL != "https://hub.example.com" || c.AgentID != "7" || c.AgentToken != "secret" || c.Interval != 30*time.Second || c.AllowInsecureHTTP {
 		t.Errorf("config = %+v", c)
 	}
 }

@@ -206,8 +206,14 @@ var schemaV11 = []string{
 		last_ok_at INTEGER)`,
 }
 
+var schemaV12 = []string{
+	// How long the agent waits after its last report, in seconds; 0 when the
+	// agent does not say (older than 0.2.1).
+	`ALTER TABLE agents ADD COLUMN report_interval_s INTEGER NOT NULL DEFAULT 0`,
+}
+
 // migrations[i] takes the schema from version i to version i+1.
-var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11}
+var migrations = [][]string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11, schemaV12}
 
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"

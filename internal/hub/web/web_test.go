@@ -606,18 +606,18 @@ func TestSettingsPage(t *testing.T) {
 	c := h.login()
 	ctx := context.Background()
 	body := h.do("GET", "/settings", c, nil, false).Body.String()
-	for _, want := range []string{`name="offline_after_s" value="60"`, `name="cpu_for_min" value="5"`, `name="ram_for_min" value="5"`, `name="disk_for_min" value="2"`, `name="webhook_url" value=""`} {
+	for _, want := range []string{`name="report_interval_s" value="30"`, `name="offline_misses" value="3"`, `name="cpu_for_min" value="5"`, `name="ram_for_min" value="5"`, `name="disk_for_min" value="2"`, `name="webhook_url" value=""`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings page is missing %q", want)
 		}
 	}
 	form := url.Values{"webhook_url": {"https://hooks.example.com/x"}, "telegram_token": {"123:secret"}, "telegram_chat_id": {"-100"},
-		"offline_after_s": {"120"}, "cpu_for_min": {"10"}, "ram_for_min": {"0"}, "disk_for_min": {"3"}}
+		"offline_misses": {"5"}, "cpu_for_min": {"10"}, "ram_for_min": {"0"}, "disk_for_min": {"3"}}
 	if w := h.do("POST", "/settings", c, form, false); w.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d %s", w.Code, w.Body)
 	}
 	got, _ := h.st.Settings(ctx)
-	if got["webhook_url"] != "https://hooks.example.com/x" || got["telegram_token"] != "123:secret" || got["offline_after_s"] != "120" || got["ram_for_min"] != "0" {
+	if got["webhook_url"] != "https://hooks.example.com/x" || got["telegram_token"] != "123:secret" || got["offline_misses"] != "5" || got["ram_for_min"] != "0" {
 		t.Errorf("stored settings = %v", got)
 	}
 	body = h.do("GET", "/settings", c, nil, false).Body.String()
@@ -650,16 +650,49 @@ func TestSettingsPage(t *testing.T) {
 	if got, _ := h.st.Settings(ctx); got["telegram_token"] != "" {
 		t.Errorf("the clear box must remove the token, got %q", got["telegram_token"])
 	}
-	for field, bad := range map[string]string{"webhook_url": "ftp://x", "offline_after_s": "5", "cpu_for_min": "-1", "disk_for_min": "abc"} {
-		f := url.Values{"webhook_url": {""}, "offline_after_s": {"60"}, "cpu_for_min": {"5"}, "ram_for_min": {"5"}, "disk_for_min": {"2"}}
+	for field, bad := range map[string]string{"webhook_url": "ftp://x", "offline_misses": "1", "cpu_for_min": "-1", "disk_for_min": "abc"} {
+		f := url.Values{"webhook_url": {""}, "offline_misses": {"3"}, "cpu_for_min": {"5"}, "ram_for_min": {"5"}, "disk_for_min": {"2"}}
 		f.Set(field, bad)
 		w := h.do("POST", "/settings", c, f, false)
 		if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), `class="error"`) {
 			t.Errorf("%s=%q: status %d, want 422 with an error message", field, bad, w.Code)
 		}
 	}
-	if got, _ := h.st.Settings(ctx); got["offline_after_s"] != "120" {
+	if got, _ := h.st.Settings(ctx); got["offline_misses"] != "5" {
 		t.Errorf("a rejected form must not change stored settings: %v", got)
+	}
+}
+
+func TestSettingsReportInterval(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	c := h.login()
+	form := url.Values{"webhook_url": {""}, "report_interval_s": {"60"}, "offline_misses": {"4"}, "cpu_for_min": {"5"}, "ram_for_min": {"5"}, "disk_for_min": {"2"}}
+	if w := h.do("POST", "/settings", c, form, false); w.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d %s", w.Code, w.Body)
+	}
+	if got, _ := h.st.Settings(context.Background()); got["report_interval_s"] != "60" || got["offline_misses"] != "4" {
+		t.Errorf("stored report_interval_s = %q, offline_misses = %q", got["report_interval_s"], got["offline_misses"])
+	}
+	for _, c2 := range []struct{ interval, offline, want string }{
+		{"5", "3", "Agents report every: enter a whole number of seconds from 10 to 600."},
+		{"601", "3", "Agents report every: enter a whole number of seconds from 10 to 600."},
+		{"60", "1", "Agent disconnected: enter a whole number of missed reports from 2 to 20."},
+		{"60", "21", "Agent disconnected: enter a whole number of missed reports from 2 to 20."},
+	} {
+		form.Set("report_interval_s", c2.interval)
+		form.Set("offline_misses", c2.offline)
+		w := h.do("POST", "/settings", c, form, false)
+		if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), c2.want) {
+			t.Errorf("interval %s, offline %s: %d, want 422 with %q", c2.interval, c2.offline, w.Code, c2.want)
+		}
+	}
+	// A form from before the fields existed keeps the stored values.
+	form.Del("report_interval_s")
+	form.Del("offline_misses")
+	form.Set("offline_after_s", "200")
+	h.do("POST", "/settings", c, form, false)
+	if got, _ := h.st.Settings(context.Background()); got["report_interval_s"] != "60" || got["offline_misses"] != "4" {
+		t.Errorf("after a form without the field: %v", got)
 	}
 }
 

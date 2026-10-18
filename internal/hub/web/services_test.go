@@ -497,7 +497,7 @@ func TestSettingsServiceRules(t *testing.T) {
 			t.Errorf("settings page is missing %q", want)
 		}
 	}
-	f := form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", "svc_fail_n", "5", "svc_ok_n", "1", "svc_slow_ms", "250")
+	f := form("offline_misses", "3", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", "svc_fail_n", "5", "svc_ok_n", "1", "svc_slow_ms", "250")
 	if w := h.do("POST", "/settings", c, f, false); w.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
@@ -506,7 +506,7 @@ func TestSettingsServiceRules(t *testing.T) {
 		t.Errorf("stored: %v", s)
 	}
 	for key, bad := range map[string]string{"svc_fail_n": "0", "svc_ok_n": "11", "svc_slow_ms": "50"} {
-		f := form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", key, bad)
+		f := form("offline_misses", "3", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", key, bad)
 		if w := h.do("POST", "/settings", c, f, false); w.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%s=%s: %d", key, bad, w.Code)
 		}
@@ -518,7 +518,7 @@ func TestSettingsKeepServiceRulesWhenMissing(t *testing.T) {
 	h := newHarness(t, "https://hub.example.com", false)
 	h.st.SetSettings(context.Background(), map[string]string{"svc_fail_n": "4"})
 	c := h.login()
-	f := form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2")
+	f := form("offline_misses", "3", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2")
 	if w := h.do("POST", "/settings", c, f, false); w.Code != http.StatusSeeOther {
 		t.Fatalf("save without the new fields: %d %s", w.Code, w.Body.String())
 	}
@@ -686,7 +686,7 @@ func TestSettingsServiceAlerts(t *testing.T) {
 		}
 	}
 	base := func() url.Values {
-		return form("offline_after_s", "60", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", "svc_fail_n", "3", "svc_ok_n", "2", "svc_slow_ms", "1000")
+		return form("offline_misses", "3", "cpu_for_min", "5", "ram_for_min", "5", "disk_for_min", "2", "svc_fail_n", "3", "svc_ok_n", "2", "svc_slow_ms", "1000")
 	}
 	f := base()
 	f.Set("svc_cert_days", "60, 7")

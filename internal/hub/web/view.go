@@ -16,14 +16,15 @@ import (
 )
 
 const (
-	OfflineAfter = 45 * time.Second
 	warnCPU      = alert.LimitCPU
 	warnRAM      = alert.LimitRAM
 	warnDisk     = alert.LimitDisk
 )
 
-func Online(lastSeen, now time.Time) bool {
-	return !lastSeen.IsZero() && now.Sub(lastSeen) <= OfflineAfter
+// Online reports whether h's agent reported within the time its interval
+// allows (alert.StaleAfter).
+func Online(h store.Host, now time.Time) bool {
+	return !h.LastSeen.IsZero() && now.Sub(h.LastSeen) <= alert.StaleAfter(h.ReportInterval)
 }
 
 type Usage struct {
@@ -150,7 +151,7 @@ func ratio(used, total uint64) float64 { return float64(used) / float64(total) *
 // BuildRow turns stored state into what one table row shows. An offline host
 // shows no metrics: they would be stale.
 func BuildRow(h store.Host, now time.Time) HostRow {
-	row := HostRow{ID: h.ID, Name: h.Name, IP: "–", Uptime: "–", Online: !h.Disabled && Online(h.LastSeen, now), Disabled: h.Disabled, Label: h.Label, Hostname: h.Hostname}
+	row := HostRow{ID: h.ID, Name: h.Name, IP: "–", Uptime: "–", Online: !h.Disabled && Online(h, now), Disabled: h.Disabled, Label: h.Label, Hostname: h.Hostname}
 	if !h.LastSeen.IsZero() {
 		row.LastSeenUnix = h.LastSeen.Unix()
 	}

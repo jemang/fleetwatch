@@ -130,7 +130,7 @@ func TestHandlersWriteLogLines(t *testing.T) {
 	h.do("POST", "/servers/enroll-token", c, url.Values{}, true)
 	h.do("POST", fmt.Sprintf("/hosts/%d/agent", id), c, url.Values{"disabled": {"1"}}, false)
 	h.do("POST", fmt.Sprintf("/hosts/%d/credential", id), c, url.Values{}, true)
-	h.do("POST", "/settings", c, url.Values{"webhook_url": {"https://hooks.example.com/x"}, "offline_after_s": {"120"}, "cpu_for_min": {"10"}, "ram_for_min": {"0"}, "disk_for_min": {"3"}}, false)
+	h.do("POST", "/settings", c, url.Values{"webhook_url": {"https://hooks.example.com/x"}, "offline_misses": {"5"}, "cpu_for_min": {"10"}, "ram_for_min": {"0"}, "disk_for_min": {"3"}}, false)
 	h.do("POST", fmt.Sprintf("/hosts/%d/delete", id), c, url.Values{}, false)
 	h.do("POST", "/logout", c, nil, false)
 

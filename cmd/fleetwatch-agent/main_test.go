@@ -44,7 +44,7 @@ func TestEnrollWritesConfig(t *testing.T) {
 		t.Errorf("enroll request = %+v", got)
 	}
 	b, _ := os.ReadFile(cfg)
-	for _, want := range []string{"agent_token: permanent", "agent_id: \"9\"", "allow_insecure_http: true", "interval: 15s", "- nginx.service", "- docker.service", "token_id: fleetwatch@pve!agent", "token_secret: pvesecret"} {
+	for _, want := range []string{"agent_token: permanent", "agent_id: \"9\"", "allow_insecure_http: true", "interval: 30s", "- nginx.service", "- docker.service", "token_id: fleetwatch@pve!agent", "token_secret: pvesecret"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("config is missing %q:\n%s", want, b)
 		}
@@ -130,6 +130,10 @@ func TestStatus(t *testing.T) {
 	self.LastSeen = 990
 	check(0, "Server: web-01")
 	check(0, "Status: Online (last report 10 seconds ago)")
+	self.LastSeen = 940
+	check(1, "Status: Offline (last report 1 minute ago)") // a Hub before 0.2.1 waits 45 s
+	self.OfflineAfterS = 75
+	check(0, "Status: Online (last report 1 minute ago)")
 	self.LastSeen = 400
 	check(1, "Status: Offline (last report 10 minutes ago)")
 	code = http.StatusUnauthorized

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -170,12 +171,13 @@ func (w *Web) dismissAlert(rw http.ResponseWriter, r *http.Request) {
 // the webhook URL are never part of it: a webhook URL often carries a secret in
 // its path, so the page only says that one is stored, and its host.
 type settingsForm struct {
-	ChatID                                string
-	OfflineAfter, CPUFor, RAMFor, DiskFor string
-	SvcFail, SvcOk, SvcSlow, SvcCertDays  string
-	SvcSlowAlert                          bool
-	TokenStored                           bool
-	WebhookHost                           string // empty when no webhook is stored
+	ChatID                               string
+	ReportInterval, OfflineMisses        string
+	CPUFor, RAMFor, DiskFor              string
+	SvcFail, SvcOk, SvcSlow, SvcCertDays string
+	SvcSlowAlert                         bool
+	TokenStored                          bool
+	WebhookHost                          string // empty when no webhook is stored
 }
 
 func hostOf(rawURL string) string {
@@ -206,7 +208,7 @@ func formFromSettings(s map[string]string) settingsForm {
 		return def
 	}
 	f := settingsForm{ChatID: s["telegram_chat_id"], TokenStored: s["telegram_token"] != "",
-		OfflineAfter: or("offline_after_s", "60"), CPUFor: or("cpu_for_min", "5"), RAMFor: or("ram_for_min", "5"), DiskFor: or("disk_for_min", "2"),
+		ReportInterval: or("report_interval_s", strconv.Itoa(int(alert.DefaultReportInterval.Seconds()))), OfflineMisses: or("offline_misses", strconv.Itoa(alert.DefaultOfflineMisses)), CPUFor: or("cpu_for_min", "5"), RAMFor: or("ram_for_min", "5"), DiskFor: or("disk_for_min", "2"),
 		SvcFail: or("svc_fail_n", "3"), SvcOk: or("svc_ok_n", "2"), SvcSlow: or("svc_slow_ms", "1000"),
 		SvcCertDays: or("svc_cert_days", "30, 14, 7, 1"), SvcSlowAlert: s["svc_slow_alert"] == "1"}
 	if s["webhook_url"] != "" {
@@ -269,7 +271,7 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	form := settingsForm{ChatID: r.PostFormValue("telegram_chat_id"),
-		OfflineAfter: r.PostFormValue("offline_after_s"), CPUFor: r.PostFormValue("cpu_for_min"), RAMFor: r.PostFormValue("ram_for_min"),
+		CPUFor: r.PostFormValue("cpu_for_min"), RAMFor: r.PostFormValue("ram_for_min"),
 		DiskFor: r.PostFormValue("disk_for_min"), TokenStored: s["telegram_token"] != ""}
 	if s["webhook_url"] != "" {
 		form.WebhookHost = hostOf(s["webhook_url"])
@@ -284,6 +286,8 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 	}
 	form.SvcFail, form.SvcOk, form.SvcSlow = pick("svc_fail_n", stored.SvcFail), pick("svc_ok_n", stored.SvcOk), pick("svc_slow_ms", stored.SvcSlow)
 	form.SvcCertDays = pick("svc_cert_days", stored.SvcCertDays)
+	form.ReportInterval = pick("report_interval_s", stored.ReportInterval)
+	form.OfflineMisses = pick("offline_misses", stored.OfflineMisses)
 	// The checkbox follows a hidden "0", so an unchecked box still arrives.
 	form.SvcSlowAlert = stored.SvcSlowAlert
 	if vals, sent := r.PostForm["svc_slow_alert"]; sent {
@@ -304,9 +308,12 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 	if form.ChatID != "" && !telegramChat.MatchString(form.ChatID) {
 		errs = append(errs, "Telegram chat ID must be a number or a channel name that starts with @.")
 	}
-	// A host counts as offline 45 seconds after its last report.
-	if !wholeNumber(form.OfflineAfter, int(OfflineAfter.Seconds()), 3600) {
-		errs = append(errs, "Agent disconnected: enter a whole number of seconds from 45 to 3600.")
+	minInterval, maxInterval := int(alert.MinReportInterval.Seconds()), int(alert.MaxReportInterval.Seconds())
+	if !wholeNumber(form.ReportInterval, minInterval, maxInterval) {
+		errs = append(errs, fmt.Sprintf("Agents report every: enter a whole number of seconds from %d to %d.", minInterval, maxInterval))
+	}
+	if !wholeNumber(form.OfflineMisses, alert.MinOfflineMisses, alert.MaxOfflineMisses) {
+		errs = append(errs, fmt.Sprintf("Agent disconnected: enter a whole number of missed reports from %d to %d.", alert.MinOfflineMisses, alert.MaxOfflineMisses))
 	}
 	for _, f := range []struct{ label, value string }{{"CPU high", form.CPUFor}, {"Memory high", form.RAMFor}, {"Disk full", form.DiskFor}} {
 		if !wholeNumber(f.value, 0, 1440) {
@@ -330,7 +337,7 @@ func (w *Web) settingsSave(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values := map[string]string{"telegram_chat_id": form.ChatID, "offline_after_s": form.OfflineAfter,
+	values := map[string]string{"telegram_chat_id": form.ChatID, "report_interval_s": form.ReportInterval, "offline_misses": form.OfflineMisses,
 		"cpu_for_min": form.CPUFor, "ram_for_min": form.RAMFor, "disk_for_min": form.DiskFor,
 		"svc_fail_n": form.SvcFail, "svc_ok_n": form.SvcOk, "svc_slow_ms": form.SvcSlow, "svc_cert_days": form.SvcCertDays, "svc_slow_alert": "0"}
 	if form.SvcSlowAlert {

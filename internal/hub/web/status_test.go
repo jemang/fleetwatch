@@ -34,7 +34,7 @@ func TestWatcherPublishesOnlyOnStatusChange(t *testing.T) {
 	if len(events) != 0 {
 		t.Fatal("no event while the status is unchanged, including the first tick")
 	}
-	clock = now.Add(46 * time.Second)
+	clock = now.Add(76 * time.Second)
 	w.Tick(ctx)
 	w.Tick(ctx)
 	if len(events) != 1 {
