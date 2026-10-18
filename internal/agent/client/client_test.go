@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"fleetwatch/internal/protocol"
 )
@@ -104,5 +106,41 @@ func TestEnroll(t *testing.T) {
 	}
 	if _, err := c.Enroll(context.Background(), protocol.EnrollRequest{Token: "bad"}); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("rejected token: err = %v, want ErrUnauthorized", err)
+	}
+}
+
+// A connection whose answer never comes is not used again. Behind a proxy that
+// speaks HTTP/2, every report would otherwise wait on the dead connection until
+// the kernel gives it up (about 15 minutes on Linux), and the host looks offline.
+func TestSendDialsAgainAfterAFailedRequest(t *testing.T) {
+	var conns, calls atomic.Int32
+	release := make(chan struct{})
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			<-release // the first answer hangs past the client's timeout
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.EnableHTTP2 = true
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.StartTLS()
+	defer srv.Close()
+	defer close(release)
+
+	c := New(srv.URL, "tok")
+	c.HTTP = srv.Client()
+	c.HTTP.Timeout = 300 * time.Millisecond
+	if err := c.Send(context.Background(), protocol.Report{TS: 1}); err == nil {
+		t.Fatal("the hanging request must fail")
+	}
+	if err := c.Send(context.Background(), protocol.Report{TS: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if n := conns.Load(); n != 2 {
+		t.Errorf("connections opened = %d, want 2: the second report reused the connection whose answer never came", n)
 	}
 }

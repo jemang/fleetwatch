@@ -73,6 +73,12 @@ func (c *Client) post(ctx context.Context, path string, body any, compress bool)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		// An HTTP/2 connection outlives a request that timed out on it, and
+		// the pool keeps handing it out. If the path silently died, every
+		// later request would wait on it until the kernel gives up (about 15
+		// minutes), so the next one starts from an empty pool.
+		c.HTTP.CloseIdleConnections()
+		c.HTTP.Transport = freshTransport(c.HTTP.Transport)
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
@@ -134,6 +140,17 @@ func (c *Client) Download(ctx context.Context, name string) ([]byte, error) {
 		return nil, fmt.Errorf("client: %s is larger than %d bytes", name, MaxDownload)
 	}
 	return b, nil
+}
+
+// freshTransport copies rt's settings without its connections.
+func freshTransport(rt http.RoundTripper) http.RoundTripper {
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	if t, ok := rt.(*http.Transport); ok {
+		return t.Clone()
+	}
+	return rt
 }
 
 func (c *Client) Send(ctx context.Context, r protocol.Report) error {

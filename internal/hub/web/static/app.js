@@ -330,6 +330,13 @@
   // A live update can replace the cell the tooltip points at.
   document.body.addEventListener('htmx:afterSwap', function () { if (tipFor && !tipFor.isConnected) hideTip(); });
 
+  // On a narrow screen the alert chart scrolls; open it at today, the right end.
+  function plotsToToday() {
+    document.querySelectorAll('.alert-chart .plot').forEach(function (p) { p.scrollLeft = p.scrollWidth; });
+  }
+  plotsToToday();
+  document.body.addEventListener('htmx:afterSwap', plotsToToday);
+
   // A row with data-href opens that page, unless a link or button in it was hit.
   document.body.addEventListener('click', function (e) {
     var row = e.target.closest('tr[data-href]');

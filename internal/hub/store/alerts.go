@@ -91,6 +91,12 @@ func (s *Store) Alerts(ctx context.Context, resolvedLimit int) ([]Alert, error) 
 	return append(open, done...), err
 }
 
+// FiredAlertsSince lists the alerts that fired at or after from, open or
+// not, oldest first.
+func (s *Store) FiredAlertsSince(ctx context.Context, from time.Time) ([]Alert, error) {
+	return s.queryAlerts(ctx, alertSelect+` WHERE a.fired_at >= ? ORDER BY a.fired_at, a.id`, from.Unix())
+}
+
 // UnnotifiedAlerts lists alerts that fired or resolved and whose message has
 // not been delivered yet.
 func (s *Store) UnnotifiedAlerts(ctx context.Context) ([]Alert, error) {

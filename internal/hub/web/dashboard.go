@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"fleetwatch/internal/hub/alert"
 	"fleetwatch/internal/hub/store"
@@ -37,6 +38,7 @@ type DashPanel struct {
 	Tiles     DashTiles
 	Attention []AttentionItem
 	Incidents []IncidentLine
+	Alerts    AlertChart
 }
 
 type dashboardData struct {
@@ -162,7 +164,14 @@ func (w *Web) dashboardPanelData(r *http.Request, rows []HostRow) (DashPanel, er
 	if err != nil {
 		return DashPanel{}, err
 	}
-	return buildDashboard(services, rows, alerts, incidents), nil
+	now := w.now()
+	fired, err := w.st.FiredAlertsSince(ctx, now.AddDate(0, 0, -alertChartDays))
+	if err != nil {
+		return DashPanel{}, err
+	}
+	d := buildDashboard(services, rows, alerts, incidents)
+	d.Alerts = BuildAlertChart(fired, now, time.Local)
+	return d, nil
 }
 
 func (w *Web) dashboardPage(rw http.ResponseWriter, r *http.Request) {

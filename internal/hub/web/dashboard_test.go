@@ -209,3 +209,24 @@ func TestDashboardSlowUnderOfflineHostAndPausedIncident(t *testing.T) {
 		t.Errorf("incident end reason missing: %s", body[strings.Index(body, "Recent incidents"):])
 	}
 }
+
+func TestDashboardAlertChart(t *testing.T) {
+	h := newHarness(t, "https://hub.example.com", false)
+	ctx := context.Background()
+	if body := h.do("GET", "/", h.login(), nil, false).Body.String(); !strings.Contains(body, "No alerts fired") {
+		t.Error("a Hub without alerts says so in the chart's title")
+	}
+	host := h.addHost("labs")
+	h.st.CreateAlert(ctx, host, "host_offline", "", "", h.clock.Add(-time.Hour), true)
+	h.st.CreateAlert(ctx, host, "cpu_high", "", "", h.clock.Add(-40*24*time.Hour), true) // outside the 30 days
+	rec := h.do("GET", "/dashboard/panel", h.login(), nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{`class="chart-box alert-chart"`, `1 alert</span>`, `1 offline · `, `0 resource`, `<rect class="offline"`, "Most alerts: <b>labs</b> 1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("alert chart is missing %q\n%s", want, stripTags(body))
+		}
+	}
+	if strings.Count(body, `class="day"`) != alertChartDays {
+		t.Errorf("want %d day columns", alertChartDays)
+	}
+}

@@ -244,6 +244,19 @@ svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart.on .dot { display: block; fill: var(--accent); stroke: var(--panel-solid); stroke-width: 2; }
 .chart-box .tip { display: none; position: absolute; top: 34px; transform: translateX(-50%); padding: 2px 8px; font-size: 12px; white-space: pre; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
 .chart-box .tip.on { display: block; }
+.alert-chart .dlab text { text-anchor: middle; }
+.alert-chart .plot svg { display: block; min-width: 720px; }
+.alert-chart .hit { fill: transparent; }
+.alert-chart .day:hover .hit { fill: var(--track); }
+.alert-chart .offline { fill: var(--bad); }
+.alert-chart .service { fill: var(--warn); }
+.alert-chart .resource { fill: var(--accent); }
+.alert-chart .key { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; }
+.alert-chart .key.offline { background: var(--bad); }
+.alert-chart .key.service { background: var(--warn); }
+.alert-chart .key.resource { background: var(--accent); }
+.alert-top { margin: 4px 0 2px; color: var(--ink-3); font-size: 12px; }
+.alert-top b { color: var(--ink); font-weight: 600; }
 .floattip { display: none; position: fixed; z-index: 50; max-width: min(320px, calc(100vw - 8px)); padding: 3px 9px; font-size: 12px; line-height: 1.5; white-space: pre-line; color: var(--ink); background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 4px; pointer-events: none; }
 .floattip.on { display: block; }
 td[data-tip] { cursor: default; }

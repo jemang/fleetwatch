@@ -6,6 +6,17 @@
 </section>
 <h2>Attention</h2>
 <ul class="attention">{{range .Attention}}<li data-tag="{{.Tag}}"><span class="atag">[{{.Tag}}]</span> <a href="{{.Href}}"><b>{{.Title}}</b></a><span class="atext">{{.Text}}{{if .Since}} <span data-for="{{.Since}}"></span>{{end}}{{if .After}} · {{.After}}{{end}}{{range $i, $n := .Names}}{{if $i}},{{end}} <a href="{{$n.Href}}">{{$n.Name}}</a>{{end}}</span></li>{{else}}<li class="calm">Nothing needs attention.</li>{{end}}</ul>
+<h2>Alerts · last 30 days</h2>
+<figure class="chart-box alert-chart">
+<figcaption><span class="t">{{if .Alerts.Empty}}No alerts fired{{else}}{{.Alerts.TotalText}}{{end}}</span>{{if not .Alerts.Empty}}<span class="s"><i class="key offline"></i>{{.Alerts.Offline}} offline · <i class="key service"></i>{{.Alerts.Service}} service · <i class="key resource"></i>{{.Alerts.Resource}} resource · busiest {{.Alerts.Busiest}}</span>{{end}}</figcaption>
+{{if not .Alerts.Empty}}<div class="scroll plot"><svg class="chart" viewBox="0 0 840 152" role="img" aria-label="Alerts fired per day over the last 30 days">
+<g class="grid"><line x1="36" x2="832" y1="12" y2="12"/><line x1="36" x2="832" y1="70" y2="70"/><line x1="36" x2="832" y1="128" y2="128"/></g>
+<g class="ylab"><text x="31" y="16">{{.Alerts.YMax}}</text><text x="31" y="74">{{.Alerts.YMid}}</text><text x="31" y="132">0</text></g>
+{{range .Alerts.Bars}}<g class="day" data-tip="{{.Tip}}"><rect class="hit" x="{{.SlotX}}" y="12" width="{{.SlotW}}" height="116"/>{{$b := .}}{{range .Segs}}<rect class="{{.Class}}" x="{{$b.X}}" y="{{.YS}}" width="{{$b.W}}" height="{{.HS}}"/>{{end}}</g>{{end}}
+<g class="dlab">{{range .Alerts.XTicks}}<text x="{{.X}}" y="146">{{.Label}}</text>{{end}}</g>
+</svg></div>
+{{if .Alerts.Top}}<p class="alert-top">Most alerts: {{range $i, $s := .Alerts.Top}}{{if $i}} · {{end}}<b>{{$s.Name}}</b> {{$s.N}}{{end}}</p>{{end}}{{end}}
+</figure>
 <h2>Recent incidents</h2>
 {{if .Incidents}}<div class="scroll"><table class="hosts plain incidents">
   <thead><tr><th>Service</th><th>Started</th><th>Ended</th><th>Duration</th><th>Reason</th></tr></thead>

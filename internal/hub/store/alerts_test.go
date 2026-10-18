@@ -197,3 +197,26 @@ func TestServiceAlerts(t *testing.T) {
 		t.Fatalf("%d service alerts left after deleting the service", n)
 	}
 }
+
+func TestFiredAlertsSince(t *testing.T) {
+	s := open(t)
+	host := newHost(t, s, "web-01")
+	sid, _ := s.CreateService(ctx, Service{Name: "Grafana", URL: "https://grafana.lan", IntervalS: 60, TimeoutS: 10, Enabled: true}, t0)
+	old, _ := s.CreateAlert(ctx, host, "cpu_high", "", "", t0.Add(-2*time.Hour), true)
+	s.ResolveAlert(ctx, old, t0.Add(-time.Hour))
+	s.CreateAlert(ctx, host, "disk_full", "/", "", t0, false) // pending: never fired
+	late, _ := s.CreateAlert(ctx, host, "ram_high", "", "", t0.Add(-3*time.Hour), false)
+	s.FireAlert(ctx, late, t0.Add(10*time.Minute)) // raised before, fired after: counts
+	svc, _ := s.CreateServiceAlert(ctx, sid, "svc_down", "", "", t0.Add(5*time.Minute), true)
+
+	got, err := s.FiredAlertsSince(ctx, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != svc || got[1].ID != late {
+		t.Fatalf("FiredAlertsSince = %+v, want the service alert then ram_high (by fire time)", got)
+	}
+	if got[0].Service != "Grafana" || got[1].Host != "web-01" {
+		t.Errorf("names: service %q, host %q", got[0].Service, got[1].Host)
+	}
+}
